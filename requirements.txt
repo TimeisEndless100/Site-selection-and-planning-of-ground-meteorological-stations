@@ -1,0 +1,14 @@
+numpy~=2.2.4
+pandas~=2.2.3
+torch~=2.6.0+cu126
+rasterio~=1.4.3
+scikit-learn~=1.6.1
+fiona~=1.10.1
+shapely~=2.0.7
+matplotlib~=3.10.1
+pyproj~=3.7.1
+tqdm~=4.67.1
+geopandas~=1.0.1
+sympy~=1.13.1
+scipy~=1.15.2
+scikit-image~=0.25.2
