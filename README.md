@@ -77,7 +77,7 @@ Outputs:
 Plot probability map:
 
 ```bash
-python "3.Visualization_of_Predicted_Probability Maps.py" \
+python "3.Visualization of Predicted Probability Maps.py" \
     --coords_csv patches--64/patches_64_with_coords.csv \
     --pred_csv patches_predictions.csv --output_png prediction_probability_map.png
 ```
