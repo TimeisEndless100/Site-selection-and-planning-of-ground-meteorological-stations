@@ -148,7 +148,3 @@ python 9.greedy_maximum_coverage_solver.py \
 2. Confirm file paths in `1.Data_Preprocessing.py`.
 3. Ensure `patches--64/` directory exists or let the script create it.
 
-## License
-
-This project is licensed under the MIT License.
-
