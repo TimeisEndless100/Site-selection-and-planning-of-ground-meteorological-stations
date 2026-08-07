@@ -116,6 +116,9 @@ class ExperimentLogger:
             "epoch": kwargs.get("epoch", -1),
             "phase": kwargs.get("phase", ""),
             "loss": kwargs.get("loss", np.nan),
+            # loss_pu / loss_rn 分量：支撑 λ_rn 量级论证（sens_lambda）与目标消融
+            "loss_pu": kwargs.get("loss_pu", np.nan),
+            "loss_rn": kwargs.get("loss_rn", np.nan),
             "lr": kwargs.get("lr", np.nan),
             "pi": kwargs.get("pi", np.nan),
             "lambda_rn": kwargs.get("lambda_rn", np.nan),

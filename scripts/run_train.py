@@ -409,6 +409,8 @@ def main():
                 ep_start = time.time()
                 model.train()
                 losses = []
+                losses_pu = []
+                losses_rn = []
                 for x_u, _ in tqdm(dl_U, leave=False, desc=f"Main Ep {ep}"):
                     try: x_p, _ = next(iter_P)
                     except: iter_P = iter(dl_P); x_p, _ = next(iter_P)
@@ -439,6 +441,9 @@ def main():
                     loss.backward()
                     optimizer.step()
                     losses.append(loss.item())
+                    # 分量累计（loss_pu/loss_rn 拆分，支撑 λ 量级论证）
+                    losses_pu.append(loss_main.item())
+                    losses_rn.append(loss_rn.item())
 
                 # Check Scores
                 model.eval()
@@ -452,13 +457,16 @@ def main():
                         rn_score = np.nan
 
                 avg_loss = np.mean(losses)
+                avg_loss_pu = float(np.mean(losses_pu)) if losses_pu else 0.0
+                avg_loss_rn = float(np.mean(losses_rn)) if losses_rn else 0.0
                 if np.isnan(rn_score):
-                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | P_score={p_score:.2f}, RN_score=nan")
+                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | PU={avg_loss_pu:.4f}, RN={avg_loss_rn:.4f} | P_score={p_score:.2f}, RN_score=nan")
                 else:
-                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | P_score={p_score:.2f}, RN_score={rn_score:.2f}")
+                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | PU={avg_loss_pu:.4f}, RN={avg_loss_rn:.4f} | P_score={p_score:.2f}, RN_score={rn_score:.2f}")
 
                 training_history.append({
                     'epoch': ep, 'loss': avg_loss,
+                    'loss_pu': avg_loss_pu, 'loss_rn': avg_loss_rn,
                     'p_score': p_score, 'rn_score': rn_score
                 })
                 logger.log_epoch(
@@ -466,6 +474,8 @@ def main():
                     epoch=ep,
                     phase="main",
                     loss=float(avg_loss),
+                    loss_pu=avg_loss_pu,
+                    loss_rn=avg_loss_rn,
                     lr=float(optimizer.param_groups[0]["lr"]),
                     pi=float(pi),
                     lambda_rn=float(args.lambda_rn),
@@ -477,7 +487,7 @@ def main():
         # --- Save Training History ---
         training_log_path = fold_dir / "training_log.csv"
         loss_curve_path = fold_dir / "loss_curve.png"
-        history_df = pd.DataFrame(training_history, columns=["epoch", "loss", "p_score", "rn_score"])
+        history_df = pd.DataFrame(training_history, columns=["epoch", "loss", "loss_pu", "loss_rn", "p_score", "rn_score"])
         history_df.to_csv(training_log_path, index=False)
         if len(history_df) > 0:
             plot_training_history(history_df, loss_curve_path)

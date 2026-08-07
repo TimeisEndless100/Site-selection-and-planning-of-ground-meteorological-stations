@@ -72,11 +72,15 @@ def evaluate_auc_ap(model: torch.nn.Module, data: Data, mask: torch.Tensor) -> t
 
 
 @torch.no_grad()
-def evaluate_metric_pack(model: torch.nn.Module, data: Data) -> dict[str, float]:
+def evaluate_metric_pack(model: torch.nn.Module, data: Data, mask: torch.Tensor | None = None) -> dict[str, float]:
+    """评估指标包。mask 非空时只在该节点子集上算指标（P2 修复：transductive 用全图传播 + val_mask）。"""
     model.eval()
     y_score = torch.sigmoid(model(data.x, data.edge_index)).cpu().numpy()
     y_true = data.y.cpu().numpy()
     sets = data.sets.cpu().numpy()
+    if mask is not None:
+        m = mask.cpu().numpy()
+        y_score, y_true, sets = y_score[m], y_true[m], sets[m]
     mask_p = sets == 1
     mask_rn = sets == 2
     mp = compute_metric_pack(y_true=y_true, y_score=y_score, mask_p=mask_p, mask_rn=mask_rn)
@@ -117,6 +121,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fold_ids", type=str, default="", help="Comma-separated fold ids, e.g. 0,1")
     parser.add_argument("--eval_mode", type=str, default="transductive", choices=["transductive", "inductive"])
+    parser.add_argument("--self_loop_only", action="store_true",
+                        help="abla_graph 对照：把图替换为纯自环，SAGE 同架构但无节点间传播")
     parser.add_argument("--log_dir", type=str, default="", help="Enhanced logging dir. Default: <out_dir>/logs")
     parser.add_argument("--disable_enhanced_logging", action="store_true")
     args = parser.parse_args()
@@ -148,6 +154,12 @@ def main() -> None:
     else:
         edge_index = build_grid_graph(df)
         torch.save(edge_index, edge_path)
+
+    if args.self_loop_only:
+        # abla_graph「同架构无传播」对照：每个节点只聚合自身，等价于逐节点 MLP
+        n = x.size(0)
+        edge_index = torch.stack([torch.arange(n), torch.arange(n)], dim=0)
+        print(f"  [Info] self_loop_only: 图替换为 {n} 个自环，无节点间传播")
 
     df = assign_sets(
         df,
@@ -247,19 +259,9 @@ def main() -> None:
             torch.save(model.state_dict(), ckpt_path)
             logger.log_artifact(path=ckpt_path, artifact_type="model_checkpoint", fold=fold_idx)
 
-            # Evaluate on validation subset under transductive graph.
-            val_data = Data(
-                x=full_data.x[val_mask_dev].detach().cpu(),
-                edge_index=subgraph(
-                    torch.tensor(val_idx, dtype=torch.long),
-                    edge_index,
-                    relabel_nodes=True,
-                )[0],
-                y=full_data.y[val_mask_dev].detach().cpu(),
-            )
-            val_data.sets = full_data.sets[val_mask_dev].detach().cpu()
-            val_data = val_data.to(device)
-            metrics = evaluate_metric_pack(model, val_data)
+            # P2 修复：transductive 最终指标 = 全图传播 + val_mask（与模型选择口径一致）。
+            # 旧版误用 val 诱导子图评测 → 与 inductive 口径相同，两种协议测的是同一个东西。
+            metrics = evaluate_metric_pack(model, full_data, mask=val_mask_dev)
         else:
             train_nodes = torch.tensor(train_idx, dtype=torch.long)
             val_nodes = torch.tensor(val_idx, dtype=torch.long)
@@ -308,10 +310,19 @@ def main() -> None:
             logger.log_artifact(path=ckpt_path, artifact_type="model_checkpoint", fold=fold_idx)
             metrics = evaluate_metric_pack(model, val_data)
 
-        with torch.no_grad():
-            y_score_np = torch.sigmoid(model(val_data.x, val_data.edge_index)).detach().cpu().numpy()
-        y_true_np = val_data.y.detach().cpu().numpy()
-        sets_np = val_data.sets.detach().cpu().numpy()
+        if args.eval_mode == "transductive":
+            # 曲线/分箱也要用全图传播后的 val 预测，与指标口径一致（P2）
+            with torch.no_grad():
+                y_score_all = torch.sigmoid(model(full_data.x, full_data.edge_index)).detach().cpu().numpy()
+            val_mask_np = val_mask.cpu().numpy()
+            y_score_np = y_score_all[val_mask_np]
+            y_true_np = full_data.y[val_mask_dev].detach().cpu().numpy()
+            sets_np = full_data.sets[val_mask_dev].detach().cpu().numpy()
+        else:
+            with torch.no_grad():
+                y_score_np = torch.sigmoid(model(val_data.x, val_data.edge_index)).detach().cpu().numpy()
+            y_true_np = val_data.y.detach().cpu().numpy()
+            sets_np = val_data.sets.detach().cpu().numpy()
         set_labels = np.where(sets_np == 1, "P", np.where(sets_np == 2, "RN", "U"))
         curve_paths = save_roc_pr_points(y_true=y_true_np, y_score=y_score_np, out_dir=fold_dir, fold=fold_idx)
         score_bin_path = save_score_bins(set_values=set_labels, y_score=y_score_np, out_dir=fold_dir, fold=fold_idx)

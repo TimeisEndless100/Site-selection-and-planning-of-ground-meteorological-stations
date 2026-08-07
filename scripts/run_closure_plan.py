@@ -173,6 +173,12 @@ def add_cnn_job(
     extra: list[str],
 ) -> None:
     out_dir = Path(args.out_root) / stage / exp_id / f"seed_{seed}"
+    # 预算统一（E13 修复）：disable_warmup 时无 warm 阶段，nnpu_epochs 须补满
+    # warm_epochs + nnpu_epochs 的总预算（默认 5+15=20），否则 no-warmup 格只训 15
+    # epoch，与其他格出现 epoch 数混杂（历史缺陷 P1）。
+    nnpu_epochs = args.cnn_nnpu_epochs
+    if "--disable_warmup" in extra:
+        nnpu_epochs += args.cnn_warm_epochs
     cmd = [
         py,
         "scripts/main.py",
@@ -192,7 +198,7 @@ def add_cnn_job(
         "--warm_epochs",
         str(args.cnn_warm_epochs),
         "--nnpu_epochs",
-        str(args.cnn_nnpu_epochs),
+        str(nnpu_epochs),
         "--lr",
         str(args.cnn_lr),
         "--seed",
