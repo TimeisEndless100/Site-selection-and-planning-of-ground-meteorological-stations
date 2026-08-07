@@ -1,0 +1,37 @@
+# 消融实验：删/换一个明确定义的组件，预算统一 budget_epochs=20（禁止 epoch 混杂）
+# exp: abla_rn_source, abla_objective, abla_graph（abla_structure 已撤销，仅历史引用）
+family: ablation
+base:
+  budget_epochs: 20
+
+# —— 组件：RN 来源策略（原 E1）——
+abla_rn_source:
+  stage: cnn
+  cells:
+    - {rn_strategy: physics, label: physics}   # 默认锚点 = cmp_main_cnn
+    - {rn_strategy: random,  label: random}
+    - {rn_strategy: none,    label: none}
+    - {rn_strategy: noisy,   noise_rate: 0.1, label: noisy10}
+    - {rn_strategy: noisy,   noise_rate: 0.2, label: noisy20}
+    - {rn_strategy: noisy,   noise_rate: 0.3, label: noisy30}
+  note: noisy 当前只做 RN→U 单向翻转，须改双向后重跑再写结论
+
+# —— 组件：目标 warmup × nnPU × RN penalty（原 E13，预算统一 20）——
+abla_objective:
+  stage: cnn
+  cells:
+    - {label: PURN-full,  warm_epochs: 5,  nnpu_epochs: 15, lambda_rn: 1.0, mode: pu}
+    - {label: Supervised, warm_epochs: 20, nnpu_epochs: 0,  lambda_rn: 1.0, mode: bce}   # 补：全监督 P-vs-RN（PU 必要性）
+    - {label: No-RN,      warm_epochs: 5,  nnpu_epochs: 15, lambda_rn: 0.0, mode: pu}
+    - {label: No-warmup,  warm_epochs: 0,  nnpu_epochs: 20, lambda_rn: 1.0, mode: pu}    # 预算 15→20（P1 修复）
+    - {label: nnPU-only,  warm_epochs: 0,  nnpu_epochs: 20, lambda_rn: 0.0, mode: pu}
+  note: 所有格子 epoch 总数 = 20；Supervised 格是当前最缺的一格
+
+# —— 组件：图传播（原 E14，补同架构自环图对照）——
+abla_graph:
+  stage: gnn
+  cells:
+    - {arch: sage,          graph: full,      label: SAGE-full}   # 主方法 = cmp_main_gnn
+    - {arch: sage,          graph: self_loop, label: SAGE-selfloop}  # 补：同架构无传播对照
+    - {arch: nodemlp,       graph: none,      label: NodeMLP}     # 降级为次级对照
+  note: SAGE-selfloop 用 --self_loop_only 实现；若 ≈ NodeMLP 则"图传播优势"来自架构

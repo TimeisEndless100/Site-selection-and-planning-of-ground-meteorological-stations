@@ -1,0 +1,21 @@
+# 全局实验骨架：所有实验族继承的共享默认值
+# 对应论文「§4.1 实验设置」的机器可读版本。默认值 = 论文主数字。
+folds: 5
+seeds: [42, 52, 62]
+grid_size: 10
+device: cuda
+metrics: [auc, auprc, brier, recall_k]
+
+# 主方法默认配置（各敏感性/消融实验的公共锚点）
+rn_slope_thresh: 45.0
+rn_water_thresh: 0.5
+lambda_rn: 1.0
+pi: estimated
+
+# 训练预算（消融内所有格子统一，禁止出现 epoch 数混杂）
+budget_epochs: 20
+warm_epochs: 5
+
+# 图默认
+gnn_type: sage
+graph_k: 8

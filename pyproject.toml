@@ -16,6 +16,7 @@ dependencies = [
     "rasterio~=1.4.3",
     "shapely~=2.1.0",
     "pyproj~=3.7.1",
+    "pyyaml>=6.0.3",
 ]
 
 # torch 的 +cu126 本地版本只在 pytorch 官方索引发布（PyPI 没有），

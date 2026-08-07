@@ -1,0 +1,55 @@
+# 敏感性实验：连续参数扫描，测结论稳健性（非选最优，最优格不写"改进"）
+# exp: sens_rn_threshold, sens_pi, sens_lambda, sens_graph_k, sens_fold_grid, sens_feature
+family: sensitivity
+_planned_note: 下 3 个为「待补」实验（registry 状态 = planned），cells 待定，先占位保证注册表↔配置一致
+base:
+  folds: 5
+  seeds: [42, 52, 62]
+
+# —— RN 阈值 slope×water（原 E2）——
+# 改造：每档输出附 RN/U/P 三类计数，暴露数据构成随阈值漂移（阈值换的是标签，不是模型）
+sens_rn_threshold:
+  stage: cnn
+  metric: "指标变化区间 + 计数漂移"
+  report:
+    - "每档 RN/U/P 计数（随阈值变化）"
+    - "结论排序是否保持（如 PURN > PN 是否稳定）"
+  cells:
+    slope: [35.0, 40.0, 45.0, 50.0, 55.0]
+    water: [0.3, 0.5, 0.7]
+
+# —— 类先验 π（原 E3）——
+# 改造：预设网格 + ECE/Brier 校准类指标（π 决定 nnPU 估计偏置，直接看校准）
+sens_pi:
+  stage: cnn
+  metric: "AUC + ECE/Brier"
+  cells:
+    pi: [0.2, 0.3, 0.4, 0.5, 0.6]
+
+# —— RN 惩罚强度 λ_rn（原 E4）——
+# 扩对数网格；λ_rn=0 时 RN 信号被完全丢弃，若指标崩塌 → 最扎实的机制证据（RN 必要性）
+sens_lambda:
+  stage: cnn
+  metric: "AUC/AUPRC（λ 扫描）"
+  cells:
+    lambda_rn: [0.0, 0.1, 0.5, 1.0, 2.0, 5.0]
+  note: λ=0 格与 abla_objective 的 No-RN 格等价，聚合时去重
+
+# —— 以下为「待补」实验（🟡 中优先，占位配置）——
+sens_graph_k:
+  stage: gnn
+  metric: "AUC/AUPRC（k 扫描）"
+  cells: null
+  planned: "k ∈ {4, 8, 12, 16}"
+
+sens_fold_grid:
+  stage: gnn
+  metric: "AUC/AUPRC（划分稳健性）"
+  cells: null
+  planned: "grid ∈ {5, 10, 20} × buffer ∈ {0, 1, 2}"
+
+sens_feature:
+  stage: cnn
+  metric: "AUC/AUPRC（通道消减）"
+  cells: null
+  planned: "去 DEM / 去 LC / 仅 Near 尺度"

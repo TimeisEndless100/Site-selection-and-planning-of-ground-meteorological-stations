@@ -1,0 +1,16 @@
+# 评估协议稳健性：换推理方式，结论是否保持（非选最优协议 → 选择偏置陷阱）
+# exp: proto_trans_ind_buffer（原 E7）
+family: protocol
+base:
+  folds: 5
+  seeds: [42, 52, 62]
+
+proto_trans_ind_buffer:
+  stage: gnn
+  metric: "AUC（mean±std）"
+  report:
+    - "各协议下方法排序是否保持（SAGE > GAT > GCN）"
+    - "transductive vs inductive 差异是否显著（口径修复后才有意义）"
+  cells:
+    mode: [transductive, inductive, buffered]
+  note: trans/ind 评测口径须先修（run_train_gnn.py 现对二者都用诱导子图，P2 缺陷）

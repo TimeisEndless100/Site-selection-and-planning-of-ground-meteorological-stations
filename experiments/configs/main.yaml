@@ -1,0 +1,37 @@
+# 对比方法（论文主表）：主方法 vs 基线方法，同一数据划分 / 指标 / 显著性框架
+# exp: cmp_main_cnn, cmp_main_gnn, cmp_pu_baseline, cmp_graph_baseline
+family: comparison
+base:
+  folds: 5
+  seeds: [42, 52, 62]
+  grid_size: 10
+
+# —— 桶① CNN 阶段（与 cmp_pu_baseline 同表）——
+cmp_main_cnn:
+  stage: cnn
+  cells:
+    - {method: purn,   mode: pu,     label: PURN-CNN}   # 主方法
+    - {method: pn,     mode: pn,     label: PN}
+    - {method: taylor, mode: taylor, label: TaylorPU}
+
+# —— 桶② GNN 阶段（与 cmp_graph_baseline 同表）——
+cmp_main_gnn:
+  stage: gnn
+  cells:
+    - {gnn_type: sage, label: SAGE}   # 主方法
+    - {gnn_type: gcn,  label: GCN}
+    - {gnn_type: gat,  label: GAT}
+
+# 基线方法（原 E6），复现到统一管线、共享同一显著性框架（P4 修复目标）
+cmp_pu_baseline:
+  stage: cnn
+  cells:
+    - {method: upu,        label: uPU}
+    - {method: elkan_noto, label: ElkanNoto}
+    - {method: bagging_pu, label: BaggingPU}
+
+cmp_graph_baseline:
+  stage: gnn
+  cells:
+    - {method: lp,     label: LP}
+    - {method: appnp,  label: APPNP}
