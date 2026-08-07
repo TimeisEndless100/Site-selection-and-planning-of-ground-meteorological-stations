@@ -1,0 +1,21 @@
+# 数据（5.1 GB，不入库）
+data/
+
+# 实验产物（1.7 GB，可由代码重跑，不入库）
+outputs/
+
+# 虚拟环境与缓存
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# 删除 CBAM/CoordConv 前的手工备份（git 已接管代码版本历史）
+.backup_20260807_remove_cbam_cc/

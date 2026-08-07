@@ -1,0 +1,29 @@
+[project]
+name = "weather-station-pu"
+version = "0.1.0"
+description = "复杂地形（重庆）气象站适宜性建模：PURN-CNN + GraphSAGE + RMCLP"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy~=2.1.2",
+    "pandas~=2.2.3",
+    "torch==2.7.0+cu126",
+    "scikit-learn~=1.6.1",
+    "torch-geometric~=2.7.0",
+    "tqdm~=4.67.1",
+    "seaborn~=0.13.2",
+    "geopandas~=1.0.1",
+    "scipy~=1.15.3",
+    "rasterio~=1.4.3",
+    "shapely~=2.1.0",
+    "pyproj~=3.7.1",
+]
+
+# torch 的 +cu126 本地版本只在 pytorch 官方索引发布（PyPI 没有），
+# 这里把 torch 钉到该索引，其余包仍走 PyPI。
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }

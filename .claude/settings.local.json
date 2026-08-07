@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import pandas as pd; df=pd.read_csv\\('data/processed/patches_info.csv'\\); print\\('total',len\\(df\\)\\); print\\('is_P==1',\\(df['is_P']==1\\).sum\\(\\)\\); print\\('cols', list\\(df.columns\\)\\)\")",
+      "Read(//c/ProgramData/anaconda3/**)",
+      "Bash(conda env *)",
+      "Read(//c/Users/15700/AppData/Local/Programs/**)",
+      "Bash(ls /c/Python*/python.exe)",
+      "Bash(where python *)",
+      "Bash(where.exe python *)",
+      "Read(//c/Users/15700/**)",
+      "Bash(awk -F, 'NR>1 && $6==1 {p++} END {print \"is_P=1 count:\", p}' data/processed/patches_info.csv)",
+      "Bash(awk -F, 'NR>1 && $6==0 {if \\($7+0>45 || $10+0>0.5\\) rn++} END {print \"RN count:\", rn}' data/processed/patches_info.csv)",
+      "Bash(awk -F, 'NR>1 {s+=$5; if\\($5>mx\\)mx=$5; n++} END {print \"demand rows:\", n, \"sum:\", s, \"max:\", mx}' data/processed/demand_per_patch.csv)",
+      "Bash(awk -F, 'NR>1 && $5+0>0.000001 {c++} END {print \"demand>1e-6:\", c}' data/processed/demand_per_patch.csv)",
+      "Bash(awk -F, 'NR>1 {print $NF}' outputs/exp_closure_20260315/experiment_matrix.csv)",
+      "Bash(awk -F, 'NR>1 {print $11}' outputs/exp_closure_20260315/experiment_matrix.csv)",
+      "Bash(awk -F, 'NR>1' outputs/exp_closure_20260315/experiment_matrix.csv)",
+      "Bash(uv --version)",
+      "Bash(grep -v \"\\\\.py$\")",
+      "Bash(awk -F, 'FNR==1 || \\($1==\"E11\" || $1==\"E12\"\\)' outputs/exp_closure_20260315/stats_results.csv)",
+      "Bash(awk -F, '{print $1, $2, $3, $4, $5, $13, $14}')"
+    ]
+  }
+}

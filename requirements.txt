@@ -1,0 +1,12 @@
+numpy~=2.1.2
+pandas~=2.2.3
+torch~=2.7.0+cu126
+scikit-learn~=1.6.1
+torch-geometric~=2.7.0
+tqdm~=4.67.1
+seaborn~=0.13.2
+geopandas~=1.0.1
+scipy~=1.15.3
+rasterio~=1.4.3
+shapely~=2.1.0
+pyproj~=3.7.1
