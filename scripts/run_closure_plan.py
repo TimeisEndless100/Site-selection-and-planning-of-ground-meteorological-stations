@@ -582,6 +582,23 @@ def build_jobs(args: argparse.Namespace) -> list[Job]:
                 eval_mode="transductive",
                 out_base=base_dir,
             )
+        if "sage" in e14_archs:
+            # abla_graph 自环对照：SAGE 同架构无传播（--self_loop_only），与 NodeMLP 区分架构差异
+            # 注意：out_base 必须独立于 graph_ablation_seed62——run_train_gnn 内部会拼 /{gnn_type}，
+            # 若共用 base 会因 gnn_type 同为 sage 而覆盖主 SAGE 格。
+            add_gnn_job(
+                jobs,
+                py,
+                args,
+                exp_id=f"E14_sage_selfloop_seed{seed}",
+                stage="E14",
+                model="SAGE-selfloop",
+                seed=seed,
+                gnn_type="sage",
+                eval_mode="transductive",
+                out_base=(Path(args.out_root) / "E14" / f"selfloop_seed{seed}").resolve(),
+                extra=["--self_loop_only"],
+            )
 
     # E6 external baselines.
     ext_out_dir = Path(args.out_root) / "E6_external"

@@ -61,6 +61,7 @@ def parse_args():
     parser.add_argument("--spatial_grid_size", type=int, default=10)
     parser.add_argument("--buffer_cells", type=int, default=0, help="Optional buffered split radius in grid cells")
     parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--num_workers", type=int, default=2, help="DataLoader workers (Windows spawn); 0 = single-process. 实测 num_workers=2 + persistent_workers 在本机 (RTX3060, 内存吃紧) 最优")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--warm_epochs", type=int, default=5)
     parser.add_argument("--nnpu_epochs", type=int, default=15)
@@ -186,11 +187,11 @@ def compute_stats(df, processed_dir, limit=3000):
     var = np.maximum(sq_sums / cnt - mean ** 2, 0)
     return {"mean": mean.tolist(), "std": np.sqrt(var).tolist()}
 
-def estimate_pi(model, df_P, processed_dir, stats, device):
+def estimate_pi(model, df_P, processed_dir, stats, device, num_workers=0):
     model.eval()
     if len(df_P) == 0: return 0.1
     ds = PUSpatialDataset(df_P, processed_dir, stats=stats)
-    dl = DataLoader(ds, batch_size=256, shuffle=False)
+    dl = DataLoader(ds, batch_size=256, shuffle=False, num_workers=num_workers)
     probs = []
     with torch.no_grad():
         for x, _ in dl:
@@ -302,7 +303,7 @@ def main():
             df_train_pn.loc[df_train_pn['set'] == 'P', 'label'] = 1.0
 
             ds_pn = PUSpatialDataset(df_train_pn, args.processed_dir, stats)
-            dl_pn = DataLoader(ds_pn, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
+            dl_pn = DataLoader(ds_pn, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True, persistent_workers=args.num_workers > 0)
 
             for ep in range(warmup_epochs + args.nnpu_epochs):
                 ep_start = time.time()
@@ -342,7 +343,7 @@ def main():
                 df_warm.loc[df_warm['set']=='P', 'label'] = 1.0
                 df_warm.loc[df_warm['set']=='RN', 'label'] = 0.0
                 ds_warm = PUSpatialDataset(df_warm, args.processed_dir, stats)
-                dl_warm = DataLoader(ds_warm, batch_size=args.batch_size, shuffle=True)
+                dl_warm = DataLoader(ds_warm, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, persistent_workers=args.num_workers > 0)
 
                 for ep in range(warmup_epochs):
                     ep_start = time.time()
@@ -375,7 +376,7 @@ def main():
             if args.pi_prior:
                 pi = args.pi_prior
             else:
-                c_hat = estimate_pi(model, df_train[df_train['set'] == 'P'], args.processed_dir, stats, device)
+                c_hat = estimate_pi(model, df_train[df_train['set'] == 'P'], args.processed_dir, stats, device, num_workers=args.num_workers)
                 p_obs = len(df_train[df_train['set'] == 'P']) / len(df_train)
                 pi = np.clip(p_obs / (c_hat + 1e-6), 0.01, 0.5)
             print(f"  Estimated Prior pi = {pi:.4f}")
@@ -397,11 +398,11 @@ def main():
             if len(ds_RN) == 0:
                 print("  [Info] No RN samples in this fold. RN penalty is disabled for this run.")
 
-            dl_P = DataLoader(ds_P, batch_size=args.batch_size, shuffle=True, drop_last=False)
-            dl_U = DataLoader(ds_U, batch_size=args.batch_size, shuffle=True, drop_last=False)
+            dl_P = DataLoader(ds_P, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=False, persistent_workers=args.num_workers > 0)
+            dl_U = DataLoader(ds_U, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=False, persistent_workers=args.num_workers > 0)
             dl_RN = None
             if use_rn_penalty:
-                dl_RN = DataLoader(ds_RN, batch_size=args.batch_size, shuffle=True, drop_last=False)
+                dl_RN = DataLoader(ds_RN, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=False, persistent_workers=args.num_workers > 0)
             iter_P = iter(dl_P)
             iter_RN = iter(dl_RN) if dl_RN is not None else None
 
@@ -502,7 +503,7 @@ def main():
         df_val_eval['label'] = (df_val_eval['set'] == 'P').astype(float)
 
         ds_val = PUSpatialDataset(df_val_eval, args.processed_dir, stats)
-        dl_val = DataLoader(ds_val, batch_size=256, shuffle=False)
+        dl_val = DataLoader(ds_val, batch_size=256, shuffle=False, num_workers=args.num_workers)
 
         val_preds, val_labels = [], []
         with torch.no_grad():

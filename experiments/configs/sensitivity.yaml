@@ -32,8 +32,8 @@ sens_lambda:
   stage: cnn
   metric: "AUC/AUPRC（λ 扫描）"
   cells:
-    lambda_rn: [0.0, 0.1, 0.5, 1.0, 2.0, 5.0]
-  note: λ=0 格与 abla_objective 的 No-RN 格等价，聚合时去重
+    lambda_rn: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+  note: λ=0 格与 abla_objective 的 No-RN 格等价，聚合时去重；0–1 均匀网格（步长 0.2），λ>1 超出当前机制讨论带
 
 # —— 以下为「待补」实验（🟡 中优先，占位配置）——
 sens_graph_k:
