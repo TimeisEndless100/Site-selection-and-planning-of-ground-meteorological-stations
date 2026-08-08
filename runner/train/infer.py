@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-ROOT_DIR = Path(__file__).parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from src.core.exp_logger import ExperimentLogger, build_inference_summary

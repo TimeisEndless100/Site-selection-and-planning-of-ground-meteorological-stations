@@ -11,7 +11,7 @@ import pandas as pd
 import torch
 from scipy.stats import wasserstein_distance
 
-ROOT_DIR = Path(__file__).parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
 from src.core.rn import assign_sets

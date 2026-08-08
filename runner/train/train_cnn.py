@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # 将项目根目录加入 path
-ROOT_DIR = Path(__file__).parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 import json

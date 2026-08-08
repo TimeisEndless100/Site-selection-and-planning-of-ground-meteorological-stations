@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-ROOT_DIR = Path(__file__).parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 try:
