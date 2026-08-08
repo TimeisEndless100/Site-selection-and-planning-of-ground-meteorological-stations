@@ -19,3 +19,6 @@ __pycache__/
 
 # 删除 CBAM/CoordConv 前的手工备份（git 已接管代码版本历史）
 .backup_20260807_remove_cbam_cc/
+
+# 渲染图产物（可由 reporting.schematics --figure 重跑）
+docs/figures_generated/

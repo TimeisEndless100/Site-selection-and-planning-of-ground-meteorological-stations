@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """论文流程示意图（← scripts/generate_paper_schematics.py）。
 
-唯一改动：OUT_DIR 从硬编码绝对路径改为相对 repo 的 docs/figures_generated；
-保留全部 6 张图的绘制逻辑。另加了 --figure 子集选择（默认全画）。
+应用链重定向（2026-08-08）：fig1/fig6/fig7 的"选址/布局"框架改为
+"概率地图 vs 地形地图对比"叙事（RMCLP 决策链已撤销，应用展示 = 概率重聚合
+为地图并用物理约束校验），fig6/fig7 文件名相应更名。
 
 用法：
     python -m reporting.schematics [--figure fig1_overall_framework_ai …]
@@ -153,7 +154,7 @@ def figure1_overall_framework() -> None:
     ax.axis("off")
 
     ax.text(0.04, 0.94, "Overall Framework of Physics-aware PU Learning and Spatial Refinement", fontsize=18, fontweight="bold", color=COLORS["navy"])
-    ax.text(0.04, 0.905, "Two-stage suitability modeling with reliable negatives, graph propagation, and deployment-oriented siting workflow", fontsize=11.5, color=COLORS["graphite"])
+    ax.text(0.04, 0.905, "Two-stage suitability modeling with reliable negatives, graph propagation, and probability-map vs terrain comparison", fontsize=11.5, color=COLORS["graphite"])
 
     rounded_box(
         ax,
@@ -231,26 +232,15 @@ def figure1_overall_framework() -> None:
         0.58,
         0.14,
         0.24,
-        "Candidate Filtering",
-        "Thresholding\nRanking\nHigh-score shortlist\nscore > τ",
+        "Probability Map",
+        "Re-aggregate cells\nSpatial probability surface\nP(cell) over the domain",
         COLORS["soft_yellow"],
         ec=COLORS["yellow"],
         title_color="#9A6A00",
     )
-    for i, width in enumerate([0.08, 0.055, 0.03]):
-        funnel = Polygon(
-            [
-                (0.85 - width / 2, 0.72 - i * 0.04),
-                (0.85 + width / 2, 0.72 - i * 0.04),
-                (0.85 + width * 0.28, 0.695 - i * 0.04),
-                (0.85 - width * 0.28, 0.695 - i * 0.04),
-            ],
-            closed=True,
-            facecolor=["#FFF6D6", "#FAE6A3", "#E9C46A"][i],
-            edgecolor="#C79B2D",
-            linewidth=1.0,
-        )
-        ax.add_patch(funnel)
+    draw_grid_panel(ax, 0.845, 0.62, 0.09, 0.10)
+    for i in range(5):
+        ax.add_patch(Circle((0.855 + i * 0.012, 0.65 + 0.02 * math.sin(i)), 0.006, facecolor=COLORS["yellow"], edgecolor="white", lw=0.5))
 
     rounded_box(
         ax,
@@ -258,23 +248,22 @@ def figure1_overall_framework() -> None:
         0.16,
         0.27,
         0.24,
-        "Deployment-oriented Station Siting",
-        "Suitability map\nCandidate sites\nCoverage-aware selection\nLayout demonstration",
+        "Terrain Map Comparison",
+        "Slope / water / DEM\nOverlay + mask infeasible cells\nSpearman ρ, RN agreement",
         "#F5F8FB",
     )
     draw_grid_panel(ax, 0.715, 0.205, 0.13, 0.11)
     for pt, color in [((0.735, 0.255), COLORS["teal"]), ((0.775, 0.235), COLORS["yellow"]), ((0.82, 0.275), COLORS["orange"])]:
         ax.add_patch(Circle(pt, 0.008, facecolor=color, edgecolor="white", lw=0.8))
-    ax.text(0.85, 0.285, "existing", color=COLORS["teal"], fontsize=9.5)
-    ax.text(0.85, 0.255, "candidate", color=COLORS["yellow"], fontsize=9.5)
-    ax.text(0.85, 0.225, "selected", color=COLORS["orange"], fontsize=9.5)
+    ax.text(0.85, 0.285, "feasible", color=COLORS["teal"], fontsize=9.5)
+    ax.text(0.85, 0.255, "probability", color=COLORS["yellow"], fontsize=9.5)
+    ax.text(0.85, 0.225, "infeasible", color=COLORS["orange"], fontsize=9.5)
 
     arrow(ax, 0.17, 0.70, 0.20, 0.70)
     arrow(ax, 0.35, 0.69, 0.38, 0.69)
     arrow(ax, 0.58, 0.69, 0.61, 0.69)
     arrow(ax, 0.79, 0.69, 0.82, 0.69)
     arrow(ax, 0.89, 0.58, 0.82, 0.40)
-    arrow(ax, 0.69, 0.40, 0.69, 0.54)
 
     ax.text(0.42, 0.46, "Stage I: local suitability inference under incomplete labels", fontsize=10.2, color=COLORS["teal"], style="italic")
     ax.text(0.62, 0.46, "Stage II: graph-based spatial refinement", fontsize=10.2, color=COLORS["blue"], style="italic")
@@ -411,20 +400,20 @@ def figure5_node_mlp_vs_graph() -> None:
     save_figure(fig, "fig5_node_mlp_graph_protocols")
 
 
-def figure6_siting_workflow() -> None:
+def figure6_prob_map_workflow() -> None:
     fig, ax = plt.subplots(figsize=(15.5, 8.6))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    ax.text(0.04, 0.93, "Application Workflow from Suitability Prediction to Station Siting", fontsize=18, fontweight="bold", color=COLORS["navy"])
-    ax.text(0.04, 0.895, "This figure illustrates how prediction outputs are transformed into deployment-oriented candidate screening and layout analysis", fontsize=11.3)
+    ax.text(0.04, 0.93, "Application Workflow: Probability Map versus Terrain Map", fontsize=18, fontweight="bold", color=COLORS["navy"])
+    ax.text(0.04, 0.895, "Re-aggregate predicted probabilities into a spatial surface and validate it against physical terrain constraints", fontsize=11.3)
 
     blocks = [
-        (0.04, "Suitability Surface", "Probability map over spatial cells", COLORS["soft_blue"]),
-        (0.25, "Threshold & Filter", "Retain high-score cells\nRemove infeasible areas", COLORS["soft_orange"]),
-        (0.46, "Candidate Pool", "Shortlisted sites\nRanked by score", COLORS["soft_yellow"]),
-        (0.67, "Coverage-aware Selection", "Budget and radius constraints\nIterative site selection", COLORS["soft_teal"]),
+        (0.04, "Suitability Surface", "Per-cell predicted probability\nfrom the final model", COLORS["soft_blue"]),
+        (0.25, "Re-aggregate to Map", "Pivot per-cell scores\nonto a spatial probability grid", COLORS["soft_teal"]),
+        (0.46, "Terrain Constraints", "Slope / water / DEM rules\nphysics-based infeasibility", COLORS["soft_orange"]),
+        (0.67, "Compare & Validate", "Overlay + mask infeasible cells\nSpearman ρ, RN agreement, top-10% rate", COLORS["soft_yellow"]),
     ]
     for x, title, body, fc in blocks:
         rounded_box(ax, x, 0.58, 0.17, 0.22, title, body, fc)
@@ -432,30 +421,35 @@ def figure6_siting_workflow() -> None:
     draw_grid_panel(ax, 0.055, 0.61, 0.12, 0.12)
     for i in range(7):
         ax.add_patch(Circle((0.07 + i * 0.014, 0.64 + 0.025 * math.sin(i)), 0.006, facecolor=COLORS["yellow"], edgecolor="white", lw=0.5))
-    ax.text(0.07, 0.595, "dense high-score belt", fontsize=9.2)
+    ax.text(0.07, 0.595, "per-cell predicted scores", fontsize=9.2)
 
-    funnel = Polygon([(0.315, 0.72), (0.375, 0.72), (0.355, 0.64), (0.335, 0.64)], facecolor=COLORS["yellow"], edgecolor="#C79B2D", linewidth=1.1)
-    ax.add_patch(funnel)
-    ax.text(0.305, 0.61, "score > τ", fontsize=10.2)
+    # 重聚合：网格分箱 → 平滑概率面
+    draw_grid_panel(ax, 0.29, 0.61, 0.09, 0.10)
+    for i in range(5):
+        ax.add_patch(Circle((0.30 + i * 0.013, 0.645 + 0.018 * math.sin(i)), 0.006, facecolor=COLORS["teal"], edgecolor="white", lw=0.5))
+    ax.text(0.29, 0.595, "binned probability surface", fontsize=9.2)
 
-    for i, y in enumerate([0.71, 0.67, 0.63]):
-        ax.add_patch(Circle((0.53, y), 0.009, facecolor=COLORS["yellow"], edgecolor="white", lw=0.8))
-        ax.text(0.548, y - 0.003, f"candidate {i+1}", fontsize=9.5)
+    # 地形约束：坡度 / 水域 规则
+    slope = Polygon([(0.50, 0.66), (0.565, 0.66), (0.535, 0.61)], facecolor=COLORS["orange"], edgecolor="white", lw=0.8)
+    ax.add_patch(slope)
+    water = Circle((0.53, 0.64), 0.016, facecolor=COLORS["soft_blue"], edgecolor=COLORS["blue"], lw=1.0)
+    ax.add_patch(water)
+    ax.text(0.475, 0.66, "slope", fontsize=9.5, color=COLORS["orange"])
+    ax.text(0.55, 0.66, "water", fontsize=9.5, color=COLORS["blue"])
 
-    ax.add_patch(Rectangle((0.70, 0.615), 0.11, 0.10, facecolor="white", edgecolor=COLORS["teal"], linewidth=1.3))
-    ax.add_patch(Circle((0.725, 0.66), 0.008, facecolor=COLORS["orange"], edgecolor="white", lw=0.7))
-    ax.add_patch(Circle((0.775, 0.69), 0.008, facecolor=COLORS["orange"], edgecolor="white", lw=0.7))
-    for cx, cy in [(0.725, 0.66), (0.775, 0.69)]:
-        ax.add_patch(Circle((cx, cy), 0.038, facecolor="none", edgecolor=COLORS["blue"], linewidth=1.0, linestyle=(0, (3, 2))))
-    ax.text(0.705, 0.603, "selection under coverage radius", fontsize=9.2)
+    # 对比与校验：概率面 + 不可行掩膜
+    ax.add_patch(Rectangle((0.70, 0.615), 0.11, 0.10, facecolor="white", edgecolor=COLORS["yellow"], linewidth=1.3))
+    for i in range(3):
+        ax.add_patch(Circle((0.72 + i * 0.03, 0.655 + 0.02 * math.sin(i)), 0.008, facecolor=COLORS["orange"], edgecolor="white", lw=0.7))
+    ax.text(0.705, 0.603, "mask infeasible (RN)", fontsize=9.2, color="#9A6A00")
 
-    rounded_box(ax, 0.29, 0.18, 0.42, 0.22, "Layout Demonstration", "Existing stations, shortlisted candidates, and selected new sites can be displayed on the same abstract map for planning-oriented interpretation.", "#F5F8FB")
+    rounded_box(ax, 0.29, 0.18, 0.42, 0.22, "Agreement Summary", "Correlation between probability and terrain features, separation between RN and non-RN cells, and the feasible fraction of high-probability cells together validate the learned suitability surface.", "#F5F8FB")
     draw_grid_panel(ax, 0.33, 0.225, 0.22, 0.10)
     for pt, color in [((0.355, 0.275), COLORS["teal"]), ((0.420, 0.255), COLORS["yellow"]), ((0.495, 0.285), COLORS["orange"])]:
         ax.add_patch(Circle(pt, 0.008, facecolor=color, edgecolor="white", lw=0.8))
-    ax.text(0.57, 0.285, "existing station", color=COLORS["teal"], fontsize=9.5)
-    ax.text(0.57, 0.255, "candidate site", color=COLORS["yellow"], fontsize=9.5)
-    ax.text(0.57, 0.225, "selected site", color=COLORS["orange"], fontsize=9.5)
+    ax.text(0.57, 0.285, "ρ < 0 (steeper → lower)", color=COLORS["teal"], fontsize=9.5)
+    ax.text(0.57, 0.255, "RN separated", color=COLORS["yellow"], fontsize=9.5)
+    ax.text(0.57, 0.225, "top-10% feasible", color=COLORS["orange"], fontsize=9.5)
 
     arrow(ax, 0.21, 0.69, 0.25, 0.69)
     arrow(ax, 0.42, 0.69, 0.46, 0.69)
@@ -463,47 +457,51 @@ def figure6_siting_workflow() -> None:
     arrow(ax, 0.76, 0.58, 0.65, 0.40)
     arrow(ax, 0.35, 0.40, 0.35, 0.58)
 
-    save_figure(fig, "fig6_station_siting_workflow_ai")
+    save_figure(fig, "fig6_prob_map_terrain_workflow_ai")
 
 
-def mini_layout(ax, x, y, w, h, title, mode):
+def mini_map(ax, x, y, w, h, title, mode):
+    """示意性地图面板：概率面 / 坡度 / 水域 / 掩膜对比（fig7 用，示意非数据图）。"""
     panel = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.01,rounding_size=0.02", facecolor="#F5F8FB", edgecolor=COLORS["light"], linewidth=1.0)
     ax.add_patch(panel)
     ax.text(x + 0.015, y + h - 0.04, title, fontsize=11, fontweight="bold", color=COLORS["navy"])
     draw_grid_panel(ax, x + 0.02, y + 0.05, w - 0.04, h - 0.12)
-    if mode == "gis":
-        pts = [(x + 0.07, y + 0.18), (x + 0.13, y + 0.24), (x + 0.20, y + 0.20)]
-    elif mode == "cnn":
-        pts = [(x + 0.05, y + 0.12), (x + 0.18, y + 0.13), (x + 0.22, y + 0.24)]
-    elif mode == "purn":
-        pts = [(x + 0.08, y + 0.23), (x + 0.15, y + 0.21), (x + 0.21, y + 0.14)]
-    else:
-        pts = [(x + 0.08, y + 0.17), (x + 0.15, y + 0.25), (x + 0.22, y + 0.20)]
-    for px, py in pts[:2]:
-        ax.add_patch(Circle((px, py), 0.008, facecolor=COLORS["yellow"], edgecolor="white", lw=0.7))
-    ax.add_patch(Circle(pts[2], 0.008, facecolor=COLORS["orange"], edgecolor="white", lw=0.7))
-    ax.add_patch(Circle((x + 0.11, y + 0.14), 0.007, facecolor=COLORS["teal"], edgecolor="white", lw=0.7))
+    if mode == "prob":  # 高概率点（黄）散布
+        for i in range(4):
+            ax.add_patch(Circle((x + 0.06 + i * 0.05, y + 0.16 + 0.03 * ((i * 7) % 3)), 0.008, facecolor=COLORS["yellow"], edgecolor="white", lw=0.7))
+    elif mode == "slope":  # 陡坡三角（橙）
+        for i in range(3):
+            ax.add_patch(Polygon(
+                [(x + 0.06 + i * 0.07, y + 0.24), (x + 0.075 + i * 0.07, y + 0.24), (x + 0.0675 + i * 0.07, y + 0.16)],
+                facecolor=COLORS["orange"], edgecolor="white", lw=0.6))
+    elif mode == "water":  # 水域圆（蓝）
+        for i in range(3):
+            ax.add_patch(Circle((x + 0.08 + i * 0.06, y + 0.17), 0.013, facecolor=COLORS["soft_blue"], edgecolor=COLORS["blue"], lw=0.9))
+    else:  # mask：概率 + 掩膜区域
+        for i in range(3):
+            ax.add_patch(Circle((x + 0.06 + i * 0.05, y + 0.17 + 0.02 * ((i * 5) % 3)), 0.008, facecolor=COLORS["yellow"], edgecolor="white", lw=0.7))
+        ax.add_patch(Rectangle((x + 0.16, y + 0.07), 0.08, 0.07, facecolor=COLORS["orange"], edgecolor="none", alpha=0.35))
 
 
-def figure7_layout_cases() -> None:
+def figure7_terrain_prob_comparison() -> None:
     fig, ax = plt.subplots(figsize=(15, 8.4))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    ax.text(0.04, 0.93, "Illustrative Station Layouts from Different Candidate Sources", fontsize=18, fontweight="bold", color=COLORS["navy"])
-    ax.text(0.04, 0.895, "A qualitative planning-oriented illustration for comparing how candidate-source strategies may shape the final layout", fontsize=11.3)
+    ax.text(0.04, 0.93, "Probability Map versus Terrain Maps (Illustrative)", fontsize=18, fontweight="bold", color=COLORS["navy"])
+    ax.text(0.04, 0.895, "The learned suitability surface re-aggregated to a spatial map, compared against physical terrain constraints (slope, water) and their joint mask", fontsize=11.3)
 
-    mini_layout(ax, 0.05, 0.52, 0.27, 0.28, "GIS-rule candidates", "gis")
-    mini_layout(ax, 0.37, 0.52, 0.27, 0.28, "CNN candidates", "cnn")
-    mini_layout(ax, 0.69, 0.52, 0.27, 0.28, "PURN + GNN candidates", "purn")
-    mini_layout(ax, 0.21, 0.15, 0.27, 0.28, "Selected deployment layout", "final")
+    mini_map(ax, 0.05, 0.52, 0.27, 0.28, "Suitability probability map", "prob")
+    mini_map(ax, 0.37, 0.52, 0.27, 0.28, "Slope (max) terrain map", "slope")
+    mini_map(ax, 0.69, 0.52, 0.27, 0.28, "Water ratio terrain map", "water")
+    mini_map(ax, 0.21, 0.15, 0.27, 0.28, "Probability under terrain mask", "mask")
 
     legend = FancyBboxPatch((0.56, 0.16), 0.30, 0.20, boxstyle="round,pad=0.01,rounding_size=0.02", facecolor="#F5F8FB", edgecolor=COLORS["light"], linewidth=1.0)
     ax.add_patch(legend)
     ax.text(0.58, 0.32, "Legend", fontsize=11.5, fontweight="bold", color=COLORS["navy"])
     for idx, (label, color) in enumerate(
-        [("existing station", COLORS["teal"]), ("candidate site", COLORS["yellow"]), ("selected site", COLORS["orange"])]
+        [("high probability / feasible", COLORS["teal"]), ("moderate / steep / wet", COLORS["yellow"]), ("masked infeasible (RN)", COLORS["orange"])]
     ):
         yy = 0.28 - idx * 0.05
         ax.add_patch(Circle((0.60, yy), 0.008, facecolor=color, edgecolor="white", lw=0.7))
@@ -513,7 +511,7 @@ def figure7_layout_cases() -> None:
     arrow(ax, 0.82, 0.52, 0.44, 0.43)
     arrow(ax, 0.19, 0.52, 0.29, 0.43)
 
-    save_figure(fig, "fig7_station_layout_cases")
+    save_figure(fig, "fig7_terrain_prob_comparison")
 
 
 # 全部示意图（输出文件 stem 见各函数内部 save_figure）
@@ -522,8 +520,8 @@ _ALL_FIGURES = [
     figure2_pu_definition,
     figure3_protocols,
     figure5_node_mlp_vs_graph,
-    figure6_siting_workflow,
-    figure7_layout_cases,
+    figure6_prob_map_workflow,
+    figure7_terrain_prob_comparison,
 ]
 # 外部别名（图文件 stem）→ 绘制函数
 _FIGURE_ALIASES = {
@@ -531,8 +529,8 @@ _FIGURE_ALIASES = {
     "fig2_pu_problem_definition_ai": figure2_pu_definition,
     "fig3_spatial_protocols_ai": figure3_protocols,
     "fig5_node_mlp_graph_protocols": figure5_node_mlp_vs_graph,
-    "fig6_station_siting_workflow_ai": figure6_siting_workflow,
-    "fig7_station_layout_cases": figure7_layout_cases,
+    "fig6_prob_map_terrain_workflow_ai": figure6_prob_map_workflow,
+    "fig7_terrain_prob_comparison": figure7_terrain_prob_comparison,
 }
 
 
