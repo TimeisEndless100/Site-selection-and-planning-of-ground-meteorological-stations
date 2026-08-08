@@ -26,5 +26,5 @@ app_rmclp_vs_mclp:
   metric: rmclp_gain
   cells:
     model: [rmclp, mclp]
-    rn: [on, off]
+    rn: ["on", "off"]   # 引号：YAML 会把裸 on/off 解析成布尔值
   note: 上游退化全 0，先修上游（app_rmclp_gain 决策链）再重跑

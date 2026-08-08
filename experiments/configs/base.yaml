@@ -6,11 +6,34 @@ grid_size: 10
 device: cuda
 metrics: [auc, auprc, brier, recall_k]
 
+# 数据路径（runner/plan.py 渲染命令的默认值）
+processed_dir: data/processed
+gnn_data_dir: data/gnn_ready
+demand_csv: data/processed/demand_per_patch.csv
+
 # 主方法默认配置（各敏感性/消融实验的公共锚点）
 rn_slope_thresh: 45.0
 rn_water_thresh: 0.5
+rn_strategy: physics
 lambda_rn: 1.0
 pi: estimated
+pi_ref: 0.15
+
+# CNN 训练默认（原 run_closure_plan.py argparse 默认值，单一数据源）
+cnn_batch_size: 128
+cnn_warm_epochs: 5
+cnn_nnpu_epochs: 15
+cnn_lr: 0.0001
+
+# GNN 训练默认
+gnn_epochs: 200
+gnn_lr: 0.005
+buffer_cells: 0
+
+# 外部基线默认
+upu_epochs: 120
+appnp_epochs: 150
+lp_max_iter: 1000
 
 # 训练预算（消融内所有格子统一，禁止出现 epoch 数混杂）
 budget_epochs: 20
@@ -19,3 +42,13 @@ warm_epochs: 5
 # 图默认
 gnn_type: sage
 graph_k: 8
+
+# RMCLP 曲线网格（原 run_closure_plan.py 默认值）
+p_add_grid: "20,50,100,150"
+radius_grid: "3,5,8"
+prob_grid: "0.6,0.7,0.8"
+e15_source: purn_gnn
+e15_p_add: 100
+e15_radius_km: 5.0
+e15_prob_thresh: 0.7
+e15_lambda_disp: 0.3
