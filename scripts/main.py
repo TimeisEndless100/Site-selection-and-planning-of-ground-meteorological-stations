@@ -28,7 +28,7 @@ SCRIPT_MAP = {
     "rmclp-curve": ("runner.train.rmclp", ["curve"]),
     "fold4-analysis": ("analysis.fold4", []),
     "closure-plan": (str(Path(__file__).parent / "run_closure_plan.py"), []),
-    "closure-aggregate": (str(Path(__file__).parent / "run_closure_aggregate.py"), []),
+    "closure-aggregate": ("analysis.aggregate", []),
 }
 
 

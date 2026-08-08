@@ -16,16 +16,22 @@ import scipy.stats as st
 
 
 def paired_wilcoxon(a: np.ndarray, b: np.ndarray) -> float:
-    """配对 Wilcoxon 符号秩检验 p 值（a 与 b 同长、一一配对）。"""
+    """配对 Wilcoxon 符号秩检验 p 值（a 与 b 同长、一一配对）。
+
+    与历史 run_closure_aggregate 语义一致：差值近 0（np.allclose 默认容差）→ 返回 1.0；
+    scipy 退化报 ValueError（如秩全同号）→ 返回 np.nan。
+    """
     a, b = np.asarray(a, float), np.asarray(b, float)
     if len(a) != len(b):
         raise ValueError("paired_wilcoxon: 两样本长度不一致")
-    # 差值全为 0 → 无法检验（退化）；全同差 → 零分布退化，返回 1.0 不报错
     diff = a - b
-    if np.all(diff == 0):
+    if np.allclose(diff, 0.0):
         return 1.0
-    stat, p = st.wilcoxon(a, b, alternative="two-sided")
-    return float(p)
+    try:
+        stat, p = st.wilcoxon(a, b, alternative="two-sided")
+        return float(p)
+    except ValueError:
+        return np.nan
 
 
 def holm_bonferroni(p_values: np.ndarray | list[float]) -> np.ndarray:
@@ -46,11 +52,17 @@ def holm_bonferroni(p_values: np.ndarray | list[float]) -> np.ndarray:
 
 
 def cohens_d_paired(a: np.ndarray, b: np.ndarray) -> float:
-    """配对 Cohen's d：d = mean(a-b) / std(a-b)（差值标准差作分母，配对设计标准做法）。"""
+    """配对 Cohen's d：d = mean(a-b) / std(a-b)（差值标准差作分母，配对设计标准做法）。
+
+    与历史 run_closure_aggregate 的 paired_cohen_d 守卫一致：样本 <2 或
+    sd < 1e-12（含退化 0）→ 返回 nan（效应量无定义），保证聚合输出逐位一致。
+    """
     diff = np.asarray(a, float) - np.asarray(b, float)
-    sd = np.std(diff, ddof=1)
-    if sd == 0:
-        return 0.0
+    if len(diff) < 2:
+        return np.nan
+    sd = float(np.std(diff, ddof=1))
+    if sd < 1e-12:
+        return np.nan
     return float(np.mean(diff) / sd)
 
 
@@ -60,12 +72,18 @@ def bootstrap_ci(samples: np.ndarray, stat: callable, n_boot: int = 1000,
 
     samples 为每配置的观测数组，stat 为要估计的统计量函数（如 np.mean）。
     固定种子保证可复现。
+
+    注意：分位输入取 round(alpha, 10)，避免 (1-ci)/2 在 float64 下得到
+    0.025000000000000022（1 ulp 偏差）而偏离历史 np.percentile(x, 2.5)/97.5
+    的逐位结果。
     """
     rng = np.random.default_rng(seed)
     x = np.asarray(samples, float)
+    if len(x) == 0:
+        return np.nan, np.nan
     boots = np.array([stat(rng.choice(x, size=len(x), replace=True)) for _ in range(n_boot)])
-    alpha = (1 - ci) / 2
-    lo, hi = np.quantile(boots, [alpha, 1 - alpha])
+    alpha = round((1 - ci) / 2, 10)
+    lo, hi = np.percentile(boots, [alpha * 100, (1 - alpha) * 100])
     return float(lo), float(hi)
 
 
