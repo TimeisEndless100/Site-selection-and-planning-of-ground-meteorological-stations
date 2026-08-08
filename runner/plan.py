@@ -63,8 +63,7 @@ _FAMILY_OF = {
 }
 
 # 闭环节点：无独立 cells，由管线渲染器生成（消费下游训练输出）
-# （Phase 2 加入 app_prob_map，随 render_app_prob_map 一并提交）
-_PIPELINE_EXPS = ["app_infer", "diag_fold4"]
+_PIPELINE_EXPS = ["app_infer", "app_prob_map", "diag_fold4"]
 
 # 外部基线：合并为一个 baselines 作业（脚本一次训练全部方法，同原 E6 行为）
 _EXTERNAL_EXPS = ["cmp_pu_baseline", "cmp_graph_baseline"]
@@ -411,6 +410,33 @@ class Planner:
                "--p_add", "100", "--prob_thresh", "0.7"]
         self._emit("app_infer", "gnn", seed, cmd, sage_dir, "inference", sage_dir / "inference_results_sage.csv",
                    model="PURN+GNN-infer", exp_id="app_infer_gnn")
+
+    def render_app_prob_map(self) -> None:
+        """概率地图 vs 地形地图：消费 app_infer 的最终模型（SAGE）推理输出，跑 analysis.prob_map。"""
+        seed = self.seeds[0]
+        _, _, sage_dir = self._app_source_dirs(seed)
+        src_file = sage_dir / "inference_results_sage.csv"
+        out_dir = self.out_root / "app_prob_map"
+        cmd = [
+            self.py,
+            "-m",
+            "analysis.prob_map",
+            "--infer_csv",
+            str(src_file),
+            "--patches_csv",
+            str(self.val("app_prob_map", "patches_csv", "data/processed/patches_info.csv")),
+            "--out_dir",
+            str(out_dir),
+            "--rn_slope_thresh",
+            str(self.val("app_prob_map", "rn_slope_thresh", 45.0)),
+            "--rn_water_thresh",
+            str(self.val("app_prob_map", "rn_water_thresh", 0.5)),
+            "--n_deciles",
+            str(self.val("app_prob_map", "n_deciles", 10)),
+        ]
+        self._emit("app_prob_map", "probmap", seed, cmd, out_dir, "prob_map",
+                   out_dir / "prob_map_summary.csv", model="ProbMap",
+                   exp_id="app_prob_map_analysis")
 
     def render_diag_fold4(self) -> None:
         seed = self.seeds[0]
