@@ -372,6 +372,8 @@ def main() -> None:
     # 首个参数为子命令名（single / curve），剥去后委托给对应 main_*（各自用 argparse 全量解析）。
     if len(sys.argv) < 2 or sys.argv[1] not in ("single", "curve"):
         print(__doc__)
+        if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+            raise SystemExit(0)  # 顶层 --help：打印用法，正常退出
         raise SystemExit("用法: python -m runner.train.rmclp <single|curve> [args…]")
     cmd = sys.argv.pop(1)
     if cmd == "single":
