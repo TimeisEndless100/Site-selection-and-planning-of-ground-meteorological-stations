@@ -200,6 +200,28 @@ def estimate_pi(model, df_P, processed_dir, stats, device, num_workers=0):
     return np.mean(np.concatenate(probs))
 
 
+def _val_auc(model, dl_val, device) -> float:
+    """验证集 ROC-AUC（P=1，其余=0），用于逐 epoch 最优模型选择（P5）。
+
+    验证集无 P（或全 P）时 AUC 未定义，返回 NaN（调用方跳过该 epoch 的选优）。
+    num_workers=0：验证集仅 ~4.4k patch，且需逐 epoch 复用，避免每次迭代重开 worker
+    （Windows spawn 慢）或 persistent worker 长期占内存（本机内存吃紧）。
+    """
+    model.eval()
+    preds, labels = [], []
+    with torch.no_grad():
+        for x, y in dl_val:
+            preds.append(torch.sigmoid(model(x.to(device))).cpu().numpy())
+            labels.append(y.numpy())
+    if not preds:
+        return float("nan")
+    y_true = np.concatenate(labels)
+    y_score = np.concatenate(preds)
+    if len(np.unique(y_true)) < 2:
+        return float("nan")
+    return float(roc_auc_score(y_true, y_score))
+
+
 # ================= 主流程 =================
 def main():
     args = parse_args()
@@ -290,6 +312,15 @@ def main():
         ).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
+        # 验证集（P=1，其余=0）：训练前构建一次，供逐 epoch 选优复用（P5）。
+        df_val_eval = df_val.copy()
+        df_val_eval['label'] = (df_val_eval['set'] == 'P').astype(float)
+        ds_val = PUSpatialDataset(df_val_eval, args.processed_dir, stats)
+        dl_val = DataLoader(ds_val, batch_size=256, shuffle=False, num_workers=0)
+        best_auc = -1.0
+        best_state = None
+        best_epoch = -1
+
         # 日志记录器
         training_history = []
 
@@ -317,7 +348,11 @@ def main():
                     losses.append(loss.item())
 
                 avg_loss = np.mean(losses)
-                print(f"  Ep {ep}: PN Loss = {avg_loss:.4f}")
+                val_auc = _val_auc(model, dl_val, device)
+                if not np.isnan(val_auc) and val_auc > best_auc:
+                    best_auc, best_epoch = val_auc, ep
+                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                print(f"  Ep {ep}: PN Loss = {avg_loss:.4f} | valAUC = {val_auc:.4f}")
                 training_history.append({'epoch': ep, 'loss': avg_loss, 'p_score': np.nan, 'rn_score': np.nan})
                 logger.log_epoch(
                     fold=fold_idx,
@@ -460,10 +495,12 @@ def main():
                 avg_loss = np.mean(losses)
                 avg_loss_pu = float(np.mean(losses_pu)) if losses_pu else 0.0
                 avg_loss_rn = float(np.mean(losses_rn)) if losses_rn else 0.0
-                if np.isnan(rn_score):
-                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | PU={avg_loss_pu:.4f}, RN={avg_loss_rn:.4f} | P_score={p_score:.2f}, RN_score=nan")
-                else:
-                    print(f"  Ep {ep}: Loss={avg_loss:.4f} | PU={avg_loss_pu:.4f}, RN={avg_loss_rn:.4f} | P_score={p_score:.2f}, RN_score={rn_score:.2f}")
+                val_auc = _val_auc(model, dl_val, device)
+                if not np.isnan(val_auc) and val_auc > best_auc:
+                    best_auc, best_epoch = val_auc, ep
+                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                rn_txt = f"{rn_score:.2f}" if not np.isnan(rn_score) else "nan"
+                print(f"  Ep {ep}: Loss={avg_loss:.4f} | PU={avg_loss_pu:.4f}, RN={avg_loss_rn:.4f} | P={p_score:.2f}, RN={rn_txt} | valAUC={val_auc:.4f}")
 
                 training_history.append({
                     'epoch': ep, 'loss': avg_loss,
@@ -496,14 +533,16 @@ def main():
         if loss_curve_path.exists():
             logger.log_artifact(path=loss_curve_path, artifact_type="loss_curve_png", fold=fold_idx)
 
+        # --- P5: 恢复验证集最优模型（逐 epoch valAUC 选优），再进最终评测 ---
+        # model_best.pth 语义由"末轮模型"改为"验证集最优模型"（与 train_gnn.py 同口径）
+        if best_state is not None:
+            model.load_state_dict(best_state)
+            print(f"  [P5] Loaded best model from epoch {best_epoch} (valAUC={best_auc:.4f})")
+        else:
+            print("  [P5] 无有效验证集 AUC，回退为末轮模型")
+
         # --- Final Evaluation (Comprehensive) ---
         model.eval()
-        # 验证集 Dataset (Label: P=1, others=0)
-        df_val_eval = df_val.copy()
-        df_val_eval['label'] = (df_val_eval['set'] == 'P').astype(float)
-
-        ds_val = PUSpatialDataset(df_val_eval, args.processed_dir, stats)
-        dl_val = DataLoader(ds_val, batch_size=256, shuffle=False, num_workers=args.num_workers)
 
         val_preds, val_labels = [], []
         with torch.no_grad():
