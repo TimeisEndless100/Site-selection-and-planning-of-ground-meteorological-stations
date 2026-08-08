@@ -13,7 +13,7 @@ CLI 标志名是 runner/train 的实现细节，**不进 YAML**：cell 语义键
 作业族：
 - 训练作业：`_render_cnn` / `_render_gnn`（stage=cnn/gnn 的实验）；
 - 外部基线：`cmp_pu_baseline` + `cmp_graph_baseline` 合并为一个 baselines 作业（同原 E6）；
-- 闭环节点：`app_infer` / `app_rmclp_gain` / `app_rmclp_vs_mclp` / `diag_fold4`
+- 闭环节点：`app_infer` / `app_prob_map` / `diag_fold4`
   由管线渲染器生成，消费下游训练输出（经 _train_out_dir 解析）。
 
 用法：
@@ -59,12 +59,12 @@ _FAMILY_OF = {
     "sens_feature": "sensitivity",
     "proto_trans_ind_buffer": "protocol",
     "app_infer": "application",
-    "app_rmclp_gain": "application",
-    "app_rmclp_vs_mclp": "application",
+    "app_prob_map": "application",
 }
 
 # 闭环节点：无独立 cells，由管线渲染器生成（消费下游训练输出）
-_PIPELINE_EXPS = ["app_infer", "app_rmclp_gain", "app_rmclp_vs_mclp", "diag_fold4"]
+# （Phase 2 加入 app_prob_map，随 render_app_prob_map 一并提交）
+_PIPELINE_EXPS = ["app_infer", "diag_fold4"]
 
 # 外部基线：合并为一个 baselines 作业（脚本一次训练全部方法，同原 E6 行为）
 _EXTERNAL_EXPS = ["cmp_pu_baseline", "cmp_graph_baseline"]
@@ -375,53 +375,6 @@ class Planner:
             exp_id="E6_external",
         )
 
-    # ---- 闭环节点：RMCLP 曲线命令 -------------------------------------------
-
-    def _rmclp_curve_cmd(
-        self,
-        out_dir: Path,
-        seed: int,
-        cfg: dict,
-        *,
-        source_csv: list[str],
-        selection_modes: str = "rmclp",
-        rn_filter_modes: str = "true",
-        lambda_disp: float | None = None,
-        skip_default_sources: bool = True,
-        p_add_grid: Any = None,
-        radius_grid: Any = None,
-        prob_grid: Any = None,
-    ) -> list[str]:
-        exp_name = cfg.get("exp", "app_rmclp_gain")
-        return [
-            self.py,
-            "-m",
-            "runner.train.rmclp",
-            "curve",
-            "--processed_dir",
-            str(self.val(exp_name, "processed_dir", "data/processed")),
-            "--demand_csv",
-            str(self.val(exp_name, "demand_csv", "data/processed/demand_per_patch.csv")),
-            "--out_dir",
-            str(out_dir),
-            "--seed",
-            str(seed),
-            "--p_add_grid",
-            str(p_add_grid or self.val(exp_name, "p_add_grid", "20,50,100,150")),
-            "--radius_grid",
-            str(radius_grid or self.val(exp_name, "radius_grid", "3,5,8")),
-            "--prob_grid",
-            str(prob_grid or self.val(exp_name, "prob_grid", "0.6,0.7,0.8")),
-            "--selection_modes",
-            selection_modes,
-            "--rn_filter_modes",
-            rn_filter_modes,
-            "--lambda_disp",
-            str(lambda_disp if lambda_disp is not None else self.val(exp_name, "e15_lambda_disp", 0.3)),
-        ] + (["--skip_default_sources"] if skip_default_sources else []) + [
-            item for entry in source_csv for item in ("--source_csv", entry)
-        ]
-
     # ---- 管线渲染器 ----------------------------------------------------------
 
     def _app_source_dirs(self, seed: int) -> tuple[Path, Path, Path]:
@@ -458,57 +411,6 @@ class Planner:
                "--p_add", "100", "--prob_thresh", "0.7"]
         self._emit("app_infer", "gnn", seed, cmd, sage_dir, "inference", sage_dir / "inference_results_sage.csv",
                    model="PURN+GNN-infer", exp_id="app_infer_gnn")
-
-    def render_app_rmclp_gain(self) -> None:
-        seed = self.seeds[0]
-        pn_dir, purn_dir, sage_dir = self._app_source_dirs(seed)
-        cfg = self.cfg("app_rmclp_gain")
-        out_dir = self.out_root / "app_rmclp_gain"
-        # 文件型源（random/gis 是 rmclp.py 内置规则源，走 --skip_default_sources 外；此处只接 infer 输出）
-        source_csv = [
-            f"cnn={pn_dir / 'inference_results.csv'}",
-            f"purn={purn_dir / 'inference_results.csv'}",
-            f"purn_gnn={sage_dir / 'inference_results_sage.csv'}",
-        ]
-        cmd = self._rmclp_curve_cmd(out_dir, seed, cfg, source_csv=source_csv,
-                                    selection_modes="rmclp", rn_filter_modes="true",
-                                    skip_default_sources=True)
-        self._emit("app_rmclp_gain", "curve", seed, cmd, out_dir, "rmclp_curve",
-                   out_dir / "rmclp_curve.csv", model="RMCLP-Curve", exp_id="app_rmclp_gain_curve")
-
-    def render_app_rmclp_vs_mclp(self) -> None:
-        seed = self.seeds[0]
-        _, _, sage_dir = self._app_source_dirs(seed)
-        cfg = self.cfg("app_rmclp_vs_mclp")
-        src_file = sage_dir / "inference_results_sage.csv"
-
-        cmd = [self.py, "-m", "runner.train.infer_gnn_all",
-               "--gnn_data_dir", str(self.val("cmp_main_gnn", "gnn_data_dir", "data/gnn_ready")),
-               "--demand_csv", str(self.val("cmp_main_gnn", "demand_csv", "data/processed/demand_per_patch.csv")),
-               "--base_exp_dir", str(sage_dir), "--archs", "sage",
-               "--p_add", str(self.val("app_rmclp_vs_mclp", "e15_p_add", 100)),
-               "--prob_thresh", str(self.val("app_rmclp_vs_mclp", "e15_prob_thresh", 0.7))]
-        self._emit("app_rmclp_vs_mclp", "infer", seed, cmd, sage_dir, "inference", src_file,
-                   model="PURN+GNN-infer", exp_id="app_rmclp_vs_mclp_infer")
-
-        source_csv = [f"{self.val('app_rmclp_vs_mclp', 'e15_source', 'purn_gnn')}={src_file}"]
-        for cell in _expand_cells(cfg.get("cells")):
-            model = str(cell.get("model", "rmclp"))
-            rn = str(cell.get("rn", "on"))
-            label = f"{model}_{rn}"
-            rn_filter = "true" if rn == "on" else "false"
-            out_dir = self.out_root / "app_rmclp_vs_mclp" / label
-            cmd = self._rmclp_curve_cmd(
-                out_dir, seed, cfg, source_csv=source_csv,
-                selection_modes=model, rn_filter_modes=rn_filter,
-                skip_default_sources=True,
-                p_add_grid=self.val("app_rmclp_vs_mclp", "e15_p_add", 100),
-                radius_grid=self.val("app_rmclp_vs_mclp", "e15_radius_km", 5.0),
-                prob_grid=self.val("app_rmclp_vs_mclp", "e15_prob_thresh", 0.7),
-            )
-            self._emit("app_rmclp_vs_mclp", label, seed, cmd, out_dir, "rmclp_curve",
-                       out_dir / "rmclp_curve.csv", model=f"{model.upper()}-rn_{rn}",
-                       exp_id=f"app_rmclp_vs_mclp_{model}_{rn}")
 
     def render_diag_fold4(self) -> None:
         seed = self.seeds[0]

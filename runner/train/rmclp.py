@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """RMCLP 选址：single（单次选择）与 curve（参数网格扫描）两个入口。
 
-由 scripts/run_rmclp.py + scripts/run_rmclp_curve.py 合并而来，行为不变：
+注意：历史工具。论文应用链已移除 RMCLP 决策（app_rmclp_gain / app_rmclp_vs_mclp
+已撤销，见 experiments/registry.py），本模块仅供手动演示/留档，不再有 plan 作业。
 - single: rmclp_select_sites 单次选择，输出 selected_sites / candidate_filter_stats / coverage_curve。
-- curve: 对 p_add × radius × prob × selection_mode × rn_filter 全网格调用 rmclp_gain。
+- curve: 对 p_add × radius × prob × selection_mode × rn_filter 全网格调用 rmclp_gain；
+  候选源 = 内置规则源 random/gis_rule + --source_csv 指定（不再硬编码历史输出路径）。
 
 用法：
     python -m runner.train.rmclp single --infer_csv … --demand_csv …
@@ -12,7 +14,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict
@@ -26,28 +27,6 @@ sys.path.append(str(ROOT_DIR))
 from src.core.exp_logger import ExperimentLogger, build_inference_summary
 from src.core.rmclp import rmclp_gain, rmclp_select_sites
 from src.core.seed import set_seed
-
-
-def ensure_purn_infer(processed_dir: Path, exp_dir: Path) -> Path | None:
-    """如 E5 PURN 训练目录尚无推理结果，则先跑 `python -m runner.train.infer` 生成。"""
-    infer_path = exp_dir / "inference_results.csv"
-    if infer_path.exists():
-        return infer_path
-    if not list(exp_dir.glob("fold_*/model_best.pth")):
-        return None
-    cmd = [
-        sys.executable,
-        "-m",
-        "runner.train.infer",
-        "--processed_dir",
-        str(processed_dir),
-        "--exp_dir",
-        str(exp_dir),
-        "--out_name",
-        "inference_results.csv",
-    ]
-    subprocess.run(cmd, check=True)
-    return infer_path if infer_path.exists() else None
 
 
 def build_random_source(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
@@ -241,17 +220,9 @@ def main_curve() -> None:
 
     sources: Dict[str, pd.DataFrame] = {}
     if not args.skip_default_sources:
+        # 只构建规则源；学得模型源一律经 --source_csv 显式传入（不再硬编码历史输出路径）
         sources["random"] = build_random_source(df_base, seed=args.seed)
         sources["gis_rule"] = build_gis_source(df_base)
-        cnn_path = Path("outputs/exp_pu_no_coor/inference_results.csv")
-        if cnn_path.exists():
-            sources["cnn"] = pd.read_csv(cnn_path)
-        purn_path = ensure_purn_infer(processed_dir, Path("outputs/exp_pu_final"))
-        if purn_path is not None and purn_path.exists():
-            sources["purn"] = pd.read_csv(purn_path)
-        gnn_path = Path("outputs/exp_gnn_compare/inference_results_sage.csv")
-        if gnn_path.exists():
-            sources["purn_gnn"] = pd.read_csv(gnn_path)
 
     for name, csv_path in parse_source_csv(args.source_csv).items():
         if not csv_path.exists():

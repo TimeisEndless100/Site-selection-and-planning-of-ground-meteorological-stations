@@ -12,7 +12,7 @@ from dataclasses import dataclass
 # --- 指标桶（不可混比） -----------------------------------------------------
 BUCKET_CNN = "cnn"            # ① CNN 阶段：AUC/AUPRC/Brier/Recall@K
 BUCKET_GNN = "gnn"            # ② GNN 阶段：同上
-BUCKET_DECISION = "decision"  # ③ 下游决策：rmclp_gain（与 AUC 不可比）
+BUCKET_APP = "application"    # ③ 应用展示：概率地图 vs 地形对比（与 AUC 不可比）
 
 # --- 实验分类（正式科研写作术语） -------------------------------------------
 CAT_COMPARISON = "comparison"    # 对比方法 / 基线方法
@@ -97,12 +97,14 @@ _reg("proto_trans_ind_buffer", CAT_PROTOCOL, BUCKET_GNN, SEC_PROTOCOL, "E7",
      STATUS_NEEDS_FIX, "transductive / inductive / buffered（修 trans/ind 评测口径；目的是稳健性非选优）")
 
 # 应用展示
-_reg("app_infer", CAT_APPLICATION, BUCKET_DECISION, SEC_APPLICATION, "E9",
-     STATUS_HAVE, "整域推理（CNN 概率图），为 app_rmclp_gain 提供候选源，本身不单独成表")
-_reg("app_rmclp_gain", CAT_APPLICATION, BUCKET_DECISION, SEC_APPLICATION, "E10",
-     STATUS_NEEDS_FIX, "RMCLP 选址收益 random/gis/cnn/purn/purn_gnn（决策链未闭合，需校准或降级）")
-_reg("app_rmclp_vs_mclp", CAT_APPLICATION, BUCKET_DECISION, SEC_APPLICATION, "E15",
-     STATUS_NEEDS_FIX, "RMCLP vs MCLP × rn_on/off（上游退化全 0，先修上游）")
+_reg("app_infer", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E9",
+     STATUS_HAVE, "整域推理（CNN 概率图）→ 概率地图源，供 app_prob_map 对比")
+_reg("app_prob_map", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E10",
+     STATUS_PLANNED, "概率地图 vs 地形地图差异（预测概率重聚合为地图，用 slope/water/DEM 物理约束校验）")
+_reg("app_rmclp_gain", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E10",
+     STATUS_REVOKED, "RMCLP 选址收益（决策链未闭合且漏 random/gis 源，已按用户决策撤销；结果留档）")
+_reg("app_rmclp_vs_mclp", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E15",
+     STATUS_REVOKED, "RMCLP vs MCLP（上游退化全 0，随 app_rmclp_gain 一并撤销；结果留档）")
 
 # 诊断
 _reg("diag_fold4", CAT_DIAGNOSTIC, None, SEC_DISCUSSION, "E8",

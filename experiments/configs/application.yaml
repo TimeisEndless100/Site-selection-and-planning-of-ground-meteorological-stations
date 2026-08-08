@@ -1,30 +1,19 @@
-# 应用展示：真实决策任务演示，决策指标与预测指标不可混比
-# exp: app_infer, app_rmclp_gain, app_rmclp_vs_mclp
+# 应用展示：概率地图 vs 地形地图差异（应用指标与预测指标不可混比）
+# exp: app_infer, app_prob_map
 family: application
 
-# 整域推理（原 E9）：CNN 概率图 → 为 RMCLP 提供候选源；本身不单独成表
+# 整域推理（原 E9）：CNN 概率图 → 概率地图源；本身不单独成表
 app_infer:
   stage: cnn
-  output: "全域概率栅格（候选源）"
-  downstream: [app_rmclp_gain]
+  output: "全域概率栅格（概率地图源）"
+  downstream: [app_prob_map]
 
-# RMCLP 选址收益（原 E10）：候选源随机/gis/cnn/purn/purn_gnn
-# ⚠️ 决策链未闭合（约束/需求参数未定），当前结论不可写死，须先校准或降级为敏感性演示
-app_rmclp_gain:
-  stage: decision
-  metric: rmclp_gain
-  cells:
-    candidate_source: [random, gis, cnn, purn, purn_gnn]
-  constraints:
-    n_cover: 8
-    radius_km: 25
-  note: 与 AUC 不可混比；上游退化（P5 last-epoch）修复后再定论
-
-# RMCLP vs MCLP × rn_on/off（原 E15）
-app_rmclp_vs_mclp:
-  stage: decision
-  metric: rmclp_gain
-  cells:
-    model: [rmclp, mclp]
-    rn: ["on", "off"]   # 引号：YAML 会把裸 on/off 解析成布尔值
-  note: 上游退化全 0，先修上游（app_rmclp_gain 决策链）再重跑
+# 概率地图 vs 地形地图（原 E10 决策链撤销后的应用重定向）
+# 将模型预测概率重聚合为地图，用物理地形约束（slope/water/DEM）做空间校验，
+# 输出吻合/偏差结论；不做选址收益数字对比（RMCLP 决策链已撤销，代码留作历史工具）
+app_prob_map:
+  stage: analysis
+  metric: prob_terrain
+  rn_slope_thresh: 45.0
+  rn_water_thresh: 0.5
+  note: 与 AUC 不可混比；概率地图源 = app_infer 的 purn_gnn（最终模型）推理输出
