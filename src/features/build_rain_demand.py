@@ -16,14 +16,14 @@ build_rain_demand.py
 - demand_per_patch.csv: pid, shard, cell_id, demand_raw, demand（[0,1]）
 
 示例（命令行）：
-python build_rain_demand.py \
+python -m src.features.build_rain_demand \
   --patches_csv data/processed/patches_info.csv \
-  --rain_tif data/rain/rx1day_2010_2024.tif \
+  --rain_tif data/raw/rainfall_cv_chongqing.tif \
   --out_csv data/processed/demand_per_patch.csv \
   --stat mean --clip_low 1 --clip_high 99 --norm minmax
 
 示例（直接改 DEFAULTS 后不带任何参数运行）：
-python build_rain_demand.py
+python -m src.features.build_rain_demand
 """
 
 import argparse
@@ -32,11 +32,11 @@ import numpy as np
 import pandas as pd
 
 DEFAULTS = {
-    "patches_csv": r"F:\weather-v2\data\processed\patches_info.csv",
+    "patches_csv": r"data\processed\patches_info.csv",
     # 二选一：给 tif 就用 tif；给 csv 就用 csv；若两者都给，优先命令行参数，其次按下面哪个非空就用哪个
-    "rain_tif":   r"F:\weather-v2\data\raw\rainfall_cv_chongqing.tif",   # 或 Rx1day.tif
-    "rain_csv":   "",  # 例如 r"F:\weather-v2\data\rain\cv_points.csv" 或 含 pid/shard/cell_id 的表
-    "out_csv":    r"F:\weather-v2\data\processed\demand_per_patch.csv",
+    "rain_tif":   r"data\raw\rainfall_cv_chongqing.tif",   # 或 Rx1day.tif
+    "rain_csv":   "",  # 例如 r"data\rain\cv_points.csv" 或 含 pid/shard/cell_id 的表
+    "out_csv":    r"data\processed\demand_per_patch.csv",
     # 其他超参数
     "stat":       "mean",   # mean / max / min / p95 （仅 tif 有用）
     "clip_low":   1.0,
