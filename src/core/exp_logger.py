@@ -124,6 +124,9 @@ class ExperimentLogger:
             "lambda_rn": kwargs.get("lambda_rn", np.nan),
             "p_score": kwargs.get("p_score", np.nan),
             "rn_score": kwargs.get("rn_score", np.nan),
+            # 2026-08-12（专家评审 P0）：逐 epoch valAUC 写出 → 论文收敛曲线 +
+            # 事后校验每配置 P5 峰值在预算内（此前仅打印 stdout，epoch_metrics.csv 无此列）
+            "val_auc": kwargs.get("val_auc", np.nan),
             "time_sec": kwargs.get("time_sec", np.nan),
         }
         _append_csv(self.epoch_path, [row])

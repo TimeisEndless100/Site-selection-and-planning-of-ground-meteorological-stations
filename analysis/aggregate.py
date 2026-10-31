@@ -44,8 +44,11 @@ MASTER_COLS = [
     "fold",
     "seed",
     "auc",
+    "auc_pu",  # 候选域 P∪U P-vs-U AUC：跨模型公平比较主口径（2026-08-12）
     "auprc",
     "brier",
+    "ece",      # 全域 ECE（sens_pi 校准论证，2026-08-12 补）
+    "ece_pu",   # 候选域 ECE（主口径对应校准）
     "sep_prn",
     "recall_k",
     "rmclp_gain",
@@ -86,10 +89,16 @@ SUMMARY_COLS = [
     "n",
     "auc_mean",
     "auc_std",
+    "auc_pu_mean",
+    "auc_pu_std",
     "auprc_mean",
     "auprc_std",
     "brier_mean",
     "brier_std",
+    "ece_mean",
+    "ece_std",
+    "ece_pu_mean",
+    "ece_pu_std",
     "sep_prn_mean",
     "sep_prn_std",
     "recall_k_mean",
@@ -131,8 +140,11 @@ def load_cnn_rows(meta: pd.Series, result_file: Path) -> list[dict]:
                 "fold": int(r.get("fold", -1)),
                 "seed": int(r.get("seed", meta["seed"] if pd.notna(meta["seed"]) else -1)),
                 "auc": float(r["auc"]) if pd.notna(r.get("auc", np.nan)) else np.nan,
+                "auc_pu": float(r["auc_pu"]) if pd.notna(r.get("auc_pu", np.nan)) else np.nan,
                 "auprc": float(r["auprc"]) if pd.notna(r.get("auprc", np.nan)) else float(r.get("ap", np.nan)),
                 "brier": float(r["brier"]) if pd.notna(r.get("brier", np.nan)) else np.nan,
+                "ece": float(r["ece"]) if pd.notna(r.get("ece", np.nan)) else np.nan,
+                "ece_pu": float(r["ece_pu"]) if pd.notna(r.get("ece_pu", np.nan)) else np.nan,
                 "sep_prn": float(r["sep_prn"]) if pd.notna(r.get("sep_prn", np.nan)) else float(r.get("separation", np.nan)),
                 "recall_k": float(r["recall_k"]) if pd.notna(r.get("recall_k", np.nan)) else np.nan,
                 "rmclp_gain": np.nan,
@@ -156,8 +168,11 @@ def load_gnn_rows(meta: pd.Series, result_file: Path) -> list[dict]:
                 "fold": int(r.get("fold", -1)),
                 "seed": int(r.get("seed", meta["seed"] if pd.notna(meta["seed"]) else -1)),
                 "auc": float(r["auc"]) if pd.notna(r.get("auc", np.nan)) else np.nan,
+                "auc_pu": float(r["auc_pu"]) if pd.notna(r.get("auc_pu", np.nan)) else np.nan,
                 "auprc": float(r["auprc"]) if pd.notna(r.get("auprc", np.nan)) else float(r.get("ap", np.nan)),
                 "brier": float(r["brier"]) if pd.notna(r.get("brier", np.nan)) else np.nan,
+                "ece": float(r["ece"]) if pd.notna(r.get("ece", np.nan)) else np.nan,
+                "ece_pu": float(r["ece_pu"]) if pd.notna(r.get("ece_pu", np.nan)) else np.nan,
                 "sep_prn": float(r["sep_prn"]) if pd.notna(r.get("sep_prn", np.nan)) else float(r.get("separation", np.nan)),
                 "recall_k": float(r["recall_k"]) if pd.notna(r.get("recall_k", np.nan)) else np.nan,
                 "rmclp_gain": np.nan,
@@ -181,8 +196,11 @@ def load_external_rows(result_file: Path) -> list[dict]:
                 "fold": int(r.get("fold", -1)),
                 "seed": int(r.get("seed", -1)),
                 "auc": float(r.get("auc", np.nan)),
+                "auc_pu": float(r.get("auc_pu", np.nan)),
                 "auprc": float(r.get("auprc", np.nan)),
                 "brier": float(r.get("brier", np.nan)),
+                "ece": float(r.get("ece", np.nan)),
+                "ece_pu": float(r.get("ece_pu", np.nan)),
                 "sep_prn": float(r.get("sep_prn", np.nan)),
                 "recall_k": float(r.get("recall_k", np.nan)),
                 "rmclp_gain": float(r.get("rmclp_gain", np.nan)),
@@ -215,8 +233,11 @@ def load_rmclp_rows(meta: pd.Series, result_file: Path) -> list[dict]:
                 "fold": -1,
                 "seed": seed,
                 "auc": np.nan,
+                "auc_pu": np.nan,
                 "auprc": np.nan,
                 "brier": np.nan,
+                "ece": np.nan,
+                "ece_pu": np.nan,
                 "sep_prn": np.nan,
                 "recall_k": np.nan,
                 "rmclp_gain": float(r.get("gain_pct", np.nan)),
@@ -285,7 +306,12 @@ def main() -> None:
             if neg_file:
                 nf = Path(neg_file)
                 if nf.exists():
-                    df_neg = pd.read_csv(nf)
+                    try:
+                        df_neg = pd.read_csv(nf)
+                    except pd.errors.EmptyDataError:
+                        # 外部基线全部成功时 negative_external.csv 为空文件（仅换行）。
+                        # 视为无失败行，不抛异常。
+                        df_neg = pd.DataFrame()
                     for _, r in df_neg.iterrows():
                         negative_rows.append(
                             {
@@ -313,7 +339,7 @@ def main() -> None:
     # Summary mean ± std.
     summary_rows = []
     if len(master) > 0:
-        metric_cols = ["auc", "auprc", "brier", "sep_prn", "recall_k", "rmclp_gain"]
+        metric_cols = ["auc", "auc_pu", "auprc", "brier", "ece", "ece_pu", "sep_prn", "recall_k", "rmclp_gain"]
         grp = master.groupby(["stage", "model"], dropna=False)
         for (stage, model), g in grp:
             row = {"stage": stage, "model": model, "n": int(len(g))}
@@ -327,7 +353,7 @@ def main() -> None:
 
     # Pairwise statistical significance (paired by fold+seed within stage).
     stats_rows: list[dict] = []
-    metrics = ["auc", "auprc", "brier", "sep_prn", "recall_k", "rmclp_gain"]
+    metrics = ["auc", "auc_pu", "auprc", "brier", "ece", "ece_pu", "sep_prn", "recall_k", "rmclp_gain"]
     if len(master) > 0:
         for stage, stage_df in master.groupby("stage"):
             models = sorted(stage_df["model"].dropna().unique().tolist())

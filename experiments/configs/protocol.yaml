@@ -3,7 +3,7 @@
 family: protocol
 base:
   folds: 5
-  seeds: [42, 52, 62]
+  seeds: [42]  # 2026-08-12 单 seed 决策（base.yaml 同）
 
 proto_trans_ind_buffer:
   stage: gnn

@@ -1,15 +1,15 @@
-"""实验注册表：语义化实验名 → {分类, 指标桶, 论文章节, 旧编号, 状态}。
+"""实验注册表：语义化实验名 → {分类, 比较组, 论文章节, 旧编号, 状态}。
 
 2026-08-07 起废弃 E1–E19 模糊编号，改用语义化命名（权威映射见
 `docs/实验地图与论文对照.md` §2）。本文件是代码侧的单一事实来源：
 聚合（analysis/aggregate.py）与报告（reporting/）据此自动获得每个实验的
-分类、指标桶与论文章节，保证三桶永不混比、分类口径唯一。
+分类、比较组与论文章节，保证三组永不混比、分类口径唯一。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-# --- 指标桶（不可混比） -----------------------------------------------------
+# --- 比较组（不可混比） -----------------------------------------------------
 BUCKET_CNN = "cnn"            # ① CNN 阶段：AUC/AUPRC/Brier/Recall@K
 BUCKET_GNN = "gnn"            # ② GNN 阶段：同上
 BUCKET_APP = "application"    # ③ 应用展示：概率地图 vs 地形对比（与 AUC 不可比）
@@ -72,7 +72,7 @@ _reg("cmp_graph_baseline", CAT_COMPARISON, BUCKET_GNN, SEC_COMPARISON, "E6",
 _reg("abla_rn_source", CAT_ABLATION, BUCKET_CNN, SEC_ABLATION, "E1",
      STATUS_HAVE, "RN 来源策略 physics/random/none/noisy10/20/30（noisy 仅单向，勿写强）")
 _reg("abla_objective", CAT_ABLATION, BUCKET_CNN, SEC_ABLATION, "E13",
-     STATUS_NEEDS_FIX, "目标组件 warmup×nnPU×RN penalty（修预算统一 20 + 补全监督 P-vs-RN 格）")
+     STATUS_NEEDS_FIX, "目标组件 warmup×nnPU×RN penalty（预算统一 20 + 全监督 P-vs-RN 格 mode=bce，2026-08-12 已修）")
 _reg("abla_graph", CAT_ABLATION, BUCKET_GNN, SEC_ABLATION, "E14",
      STATUS_NEEDS_FIX, "图传播 NodeMLP / SAGE 全图 / SAGE 自环图（补同架构无传播对照）")
 _reg("abla_structure", CAT_ABLATION, BUCKET_CNN, SEC_ABLATION, "E11/E12",
@@ -80,15 +80,15 @@ _reg("abla_structure", CAT_ABLATION, BUCKET_CNN, SEC_ABLATION, "E11/E12",
 
 # 敏感性
 _reg("sens_rn_threshold", CAT_SENSITIVITY, BUCKET_CNN, SEC_SENSITIVITY, "E2",
-     STATUS_NEEDS_FIX, "RN 阈值 slope×water（改造：每档附 RN/U/P 计数，暴露数据构成混杂）")
+     STATUS_NEEDS_FIX, "RN 阈值 slope×water（2026-08-12 重构：标签构成表纯计算生成 + 4 个训练配置测结论稳健性）")
 _reg("sens_pi", CAT_SENSITIVITY, BUCKET_CNN, SEC_SENSITIVITY, "E3",
-     STATUS_NEEDS_FIX, "类先验 π（改造：预设网格 + ECE/Brier 校准类指标）")
+     STATUS_NEEDS_FIX, "类先验 π（网格包围默认 π≈0.1 + ECE/Brier 校准类指标，2026-08-12 已修）")
 _reg("sens_lambda", CAT_SENSITIVITY, BUCKET_CNN, SEC_SENSITIVITY, "E4",
-     STATUS_NEEDS_FIX, "RN 惩罚强度 λ_rn（扩对数网格；λ=0 崩塌是最扎实机制证据）")
+     STATUS_NEEDS_FIX, "RN 惩罚强度 λ_rn（0–1 均匀网格，2026-08-12 用户决策；λ=0 崩塌是最扎实机制证据）")
 _reg("sens_graph_k", CAT_SENSITIVITY, BUCKET_GNN, SEC_SENSITIVITY, "E16",
      STATUS_PLANNED, "图近邻 k ∈ {4,8,12,16}（待补）")
 _reg("sens_fold_grid", CAT_SENSITIVITY, BUCKET_GNN, SEC_SENSITIVITY, "E17",
-     STATUS_PLANNED, "分折粒度 grid ∈ {5,10,20} / buffer ∈ {0,1,2}（待补）")
+     STATUS_PLANNED, "折划分粒度 grid ∈ {5,10,20} / buffer ∈ {0,1,2}（待补）")
 _reg("sens_feature", CAT_SENSITIVITY, BUCKET_CNN, SEC_SENSITIVITY, "E18",
      STATUS_PLANNED, "特征通道（去 DEM / 去 LC / 仅 Near 尺度）（待补）")
 
@@ -99,6 +99,8 @@ _reg("proto_trans_ind_buffer", CAT_PROTOCOL, BUCKET_GNN, SEC_PROTOCOL, "E7",
 # 应用展示
 _reg("app_infer", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E9",
      STATUS_HAVE, "整域推理（CNN 概率图）→ 概率地图源，供 app_prob_map 对比")
+_reg("app_spatial", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E16",
+     STATUS_HAVE, "空间连贯性分析（Moran's I / 残差自相关 / 不确定度-地形相关）支撑 GNN 空间平滑主张")
 _reg("app_prob_map", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E10",
      STATUS_PLANNED, "概率地图 vs 地形地图差异（预测概率重聚合为地图，用 slope/water/DEM 物理约束校验）")
 _reg("app_rmclp_gain", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E10",
@@ -108,7 +110,7 @@ _reg("app_rmclp_vs_mclp", CAT_APPLICATION, BUCKET_APP, SEC_APPLICATION, "E15",
 
 # 诊断
 _reg("diag_fold4", CAT_DIAGNOSTIC, None, SEC_DISCUSSION, "E8",
-     STATUS_HAVE, "Fold4 误差诊断（feature_shift 支撑分折脆弱性讨论）")
+     STATUS_HAVE, "Fold4 误差诊断（feature_shift 支撑折划分脆弱性讨论）")
 
 
 # --- 查询接口 ---------------------------------------------------------------

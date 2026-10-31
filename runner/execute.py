@@ -27,12 +27,18 @@ def done_marker(out_dir: str | Path) -> Path:
 
 
 def is_done(row: pd.Series) -> tuple[bool, str]:
-    """断点判断：返回 (是否完成, 原因)。"""
+    """断点判断：返回 (是否完成, 原因)。
+
+    2026-08-13 修复：DONE 标记不能单独作为完成判据——app_infer/diag_fold4_infer
+    与训练作业共享 out_dir（推理结果写在模型目录），训练作业的 DONE 会把推理作业
+    永久遮蔽为已完成，导致 inference_results.csv 从不生成。现要求 DONE 与
+    result_file 同时存在才算完成；真成功作业两者必然同存，不受影响。
+    """
     result_file = Path(str(row.get("result_file", "") or ""))
     if str(row.get("status", "")) == "success" and result_file.exists():
         return True, "matrix success + result_file 存在"
-    if done_marker(str(row.get("out_dir", ""))).exists():
-        return True, "DONE 标记存在"
+    if done_marker(str(row.get("out_dir", ""))).exists() and result_file.exists():
+        return True, "DONE 标记 + result_file 存在"
     return False, ""
 
 

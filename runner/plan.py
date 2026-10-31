@@ -3,7 +3,7 @@
 
 数据源：
 - experiments/registry.py —— 语义实验名、legacy_id、status；
-- experiments/configs/*.yaml —— 每个实验的 cells 格子（list[dict] 原样 / dict 笛卡尔积）；
+- experiments/configs/*.yaml —— 每个实验的 cells 配置（list[dict] 原样 / dict 笛卡尔积）；
 - base.yaml —— 全局训练超参默认（run_closure_plan.py 的 argparse 默认值单一数据源）。
 
 CLI 标志名是 runner/train 的实现细节，**不进 YAML**：cell 语义键 → CLI 标志的
@@ -12,7 +12,7 @@ CLI 标志名是 runner/train 的实现细节，**不进 YAML**：cell 语义键
 
 作业族：
 - 训练作业：`_render_cnn` / `_render_gnn`（stage=cnn/gnn 的实验）；
-- 外部基线：`cmp_pu_baseline` + `cmp_graph_baseline` 合并为一个 baselines 作业（同原 E6）；
+- 对比方法（基线）：`cmp_pu_baseline` + `cmp_graph_baseline` 合并为一个 baselines 作业（同原 E6）；
 - 闭环节点：`app_infer` / `app_prob_map` / `diag_fold4`
   由管线渲染器生成，消费下游训练输出（经 _train_out_dir 解析）。
 
@@ -63,9 +63,9 @@ _FAMILY_OF = {
 }
 
 # 闭环节点：无独立 cells，由管线渲染器生成（消费下游训练输出）
-_PIPELINE_EXPS = ["app_infer", "app_prob_map", "diag_fold4"]
+_PIPELINE_EXPS = ["app_infer", "app_spatial", "app_prob_map", "diag_fold4"]
 
-# 外部基线：合并为一个 baselines 作业（脚本一次训练全部方法，同原 E6 行为）
+# 对比方法（基线）：合并为一个 baselines 作业（脚本一次训练全部方法，同原 E6 行为）
 _EXTERNAL_EXPS = ["cmp_pu_baseline", "cmp_graph_baseline"]
 
 # cell 语义键 → CLI 标志（CLI 标志名是 runner/train 的实现细节，集中在此唯一数据源）
@@ -84,7 +84,7 @@ _CELL_FLAG_MAP = {
 # YAML 架构名 → train_gnn 的 --gnn_type（nodemlp = 无图传播的 MLP，同架构对照）
 _ARCH_TO_GNN_TYPE = {"sage": "sage", "gcn": "gcn", "gat": "gat", "nodemlp": "mlp", "mlp": "mlp"}
 
-# dict 格子的 cell 标签短键：单字符键直接拼接（s35），多字符键用 `short_<v>`（lambda_0.4）
+# dict 配置的 cell 标签短键：单字符键直接拼接（s35），多字符键用 `short_<v>`（lambda_0.4）
 _LABEL_KEY = {
     "slope": "s",
     "water": "w",
@@ -103,7 +103,7 @@ _LABEL_KEY = {
 
 
 def _expand_cells(cells: Any) -> list[dict]:
-    """统一格子形状：list[dict] 原样返回；dict{参数: [值,...]} 展开为笛卡尔积。"""
+    """统一配置形状：list[dict] 原样返回；dict{参数: [值,...]} 展开为笛卡尔积。"""
     if cells is None:
         return []
     if isinstance(cells, list):
@@ -117,7 +117,7 @@ def _expand_cells(cells: Any) -> list[dict]:
 
 
 def _cell_label(cell: dict) -> str:
-    """list[dict] 用 label 键；dict 格子 = k{v:g} 拼接（如 s35_w0.3、lambda_0.4）。"""
+    """list[dict] 用 label 键；dict 配置 = k{v:g} 拼接（如 s35_w0.3、lambda_0.4）。"""
     if "label" in cell:
         return str(cell["label"])
     if len(cell) == 1:  # 单键且值为字符串：直接用值（proto 的 mode 格）
@@ -156,6 +156,8 @@ class Planner:
         self.py = sys.executable
         self.jobs: list[dict] = []
         self._external_rendered = False
+        self._gnn_feat_rendered = False
+        self._rn_counts_rendered = False
         self.cfgs: dict[str, Any] = {}
         for family in _FAMILY_FILES:
             self.cfgs.update(load_family(family))
@@ -206,7 +208,7 @@ class Planner:
         for cell in _expand_cells(self.cfg(exp_name).get("cells")):
             if predicate(cell):
                 return cell, _cell_label(cell)
-        raise RuntimeError(f"无法解析 {exp_name} 的源格子（predicate 未匹配任何 cell）")
+        raise RuntimeError(f"无法解析 {exp_name} 的源配置（predicate 未匹配任何 cell）")
 
     # ---- CNN 训练渲染（stage=cnn） -------------------------------------------
 
@@ -253,7 +255,7 @@ class Planner:
                 buffer_cells = int(self.val(exp_name, "buffer_cells", 0))
                 if buffer_cells > 0:
                     cmd += ["--buffer_cells", str(buffer_cells)]
-                # RN 锚点 + cell 派生标志（顺序与旧 run_closure_plan 一致）
+                # RN 参照策略 + cell 派生标志（顺序与旧 run_closure_plan 一致）
                 cmd += ["--rn_strategy", str(cell.get("rn_strategy", self.val(exp_name, "rn_strategy", "physics")))]
                 if "noise_rate" in cell:
                     cmd += ["--rn_noise_rate", str(cell["noise_rate"])]
@@ -325,7 +327,7 @@ class Planner:
                 # train_gnn 内部把模型写入 out_dir/<gnn_type>/，result_file 跟随该约定
                 self._emit(exp_name, label, seed, cmd, out_dir, "gnn_results", out_dir / gnn_type / "results.csv")
 
-    # ---- 外部基线渲染（E6） --------------------------------------------------
+    # ---- 对比方法（基线）渲染（E6） -------------------------------------------
 
     def _render_external(self) -> None:
         if self._external_rendered:
@@ -374,6 +376,164 @@ class Planner:
             exp_id="E6_external",
         )
 
+    # ---- GBDT tabular 基线（CPU 分钟级，组①主对比非 PU 监督对照） --------------
+
+    def _render_gbdt(self) -> None:
+        """GBDT tabular 基线：与 PURN-CNN 同源信息（4 物理量 + is_rn 标志）的
+        标准监督树模型，CPU 分钟级。进 cmp_pu_baseline 对比表（组① CNN），
+        回答"深度 CNN + PU 相对标准 tabular 基线是否有判别增益"。"""
+        exp_name = "cmp_pu_baseline"
+        seed = self.seeds[0]
+        out_dir = _train_out_dir(self.out_root, exp_name, "GBDT", seed)
+        cmd = [
+            self.py,
+            "-m",
+            "runner.train.gbdt_baseline",
+            "--processed_dir",
+            str(self.val(exp_name, "processed_dir", "data/processed")),
+            "--out_dir",
+            str(out_dir),
+            "--folds",
+            str(self.val(exp_name, "folds", 5)),
+            "--grid_size",
+            str(self.val(exp_name, "grid_size", 10)),
+            "--seed",
+            str(seed),
+            "--rn_slope_thresh",
+            str(self.val(exp_name, "rn_slope_thresh", 45.0)),
+            "--rn_water_thresh",
+            str(self.val(exp_name, "rn_water_thresh", 0.5)),
+        ]
+        self._emit(
+            exp_name,
+            "GBDT",
+            seed,
+            cmd,
+            out_dir,
+            "cnn_results",
+            out_dir / "results.csv",
+            stage=exp_name,
+            model="GBDT",
+            exp_id=f"cmp_pu_baseline_GBDT_s{seed}",
+        )
+
+    # ---- physics-only 无学习参考基线（CPU 秒级，量化先验 vs 学习的分解） --------
+
+    def _render_physics_only(self) -> None:
+        """无学习参考行：y_score = 物理可建 ? 1 : 0。主方法 AUC − physics-only AUC
+        = 学习增量贡献。确定性结果，与主方法同数据/同折/同指标。"""
+        exp_name = "cmp_pu_baseline"
+        seed = self.seeds[0]
+        out_dir = _train_out_dir(self.out_root, exp_name, "Physics-only", seed)
+        cmd = [
+            self.py,
+            "-m",
+            "analysis.physics_baseline",
+            "--processed_dir",
+            str(self.val(exp_name, "processed_dir", "data/processed")),
+            "--out_dir",
+            str(out_dir),
+            "--folds",
+            str(self.val(exp_name, "folds", 5)),
+            "--grid_size",
+            str(self.val(exp_name, "grid_size", 10)),
+            "--seed",
+            str(seed),
+            "--rn_slope_thresh",
+            str(self.val(exp_name, "rn_slope_thresh", 45.0)),
+            "--rn_water_thresh",
+            str(self.val(exp_name, "rn_water_thresh", 0.5)),
+        ]
+        self._emit(
+            exp_name,
+            "Physics-only",
+            seed,
+            cmd,
+            out_dir,
+            "cnn_results",
+            out_dir / "results.csv",
+            stage=exp_name,
+            model="Physics-only",
+            exp_id=f"cmp_pu_baseline_Physics-only_s{seed}",
+        )
+
+    # ---- RN 阈值计数表（sens_rn_threshold 纯计算前置，零 GPU） ----------------
+
+    def _render_rn_counts(self) -> None:
+        """RN/U/P 计数随阈值的变化是标签构成变化，非模型变化——纯计算生成，
+        不做训练。计数表用比训练配置更密的网格（sensitivity.yaml count_grid），
+        零 GPU、秒级；训练配置只保留 4 个代表性阈值测结论稳健性。"""
+        if self._rn_counts_rendered:
+            return
+        self._rn_counts_rendered = True
+        exp_name = "sens_rn_threshold"
+        out_dir = self.out_root / exp_name / "counts"
+        processed = Path(self.val(exp_name, "processed_dir", "data/processed"))
+        cmd = [
+            self.py,
+            "-m",
+            "analysis.rn_counts",
+            "--patches_csv",
+            str(processed / "patches_info.csv"),
+            "--out_dir",
+            str(out_dir),
+        ]
+        cg = self.cfg(exp_name).get("count_grid")
+        if cg:
+            cmd += ["--slope_grid", ",".join(f"{x:g}" for x in cg["slope"])]
+            cmd += ["--water_grid", ",".join(f"{x:g}" for x in cg["water"])]
+        self._emit(
+            exp_name,
+            "counts",
+            self.seeds[0],
+            cmd,
+            out_dir,
+            "rn_counts",
+            out_dir / "rn_counts.csv",
+            model="RN-counts",
+            exp_id="sens_rn_threshold_counts",
+        )
+
+    # ---- 折对齐特征提取（P0-1） ----------------------------------------------
+
+    def _render_gnn_features(self) -> None:
+        """P0-1：折对齐特征提取作业（每 seed 一个，dedup）。
+
+        消费 cmp_main_cnn 的 PURN 配置 checkpoint（train_gnn/baselines 与其共享折划分，
+        B 修复后行序无关），产出 data/gnn_ready/node_features_fold_<f>.pt（训练/评测用）
+        + 全局 node_features.pt（app_infer / diag_fold4 整域推理用，fold_0 CNN 出图，
+        无留出声明故合法）。
+
+        依赖：须先训练 cmp_main_cnn（本作业在该实验的 PURN checkpoint 上提取）。
+        """
+        if self._gnn_feat_rendered:
+            return
+        self._gnn_feat_rendered = True
+        seed = self.seeds[0]
+        _, purn_label = self._resolve_cell("cmp_main_cnn", lambda c: c.get("mode") == "pu")
+        purn_dir = _train_out_dir(self.out_root, "cmp_main_cnn", purn_label, seed)
+        gnn_data = Path(self.val("cmp_main_gnn", "gnn_data_dir", "data/gnn_ready"))
+        cmd = [
+            self.py,
+            "-m",
+            "runner.train.extract_features",
+            "--ckpt_dir",
+            str(purn_dir),
+            "--processed_dir",
+            str(self.val("cmp_main_cnn", "processed_dir", "data/processed")),
+            "--out_dir",
+            str(gnn_data),
+            "--folds",
+            str(self.val("cmp_main_gnn", "folds", 5)),
+            "--global_from_fold",
+            "0",
+        ]
+        self._emit(
+            "cmp_main_cnn", "gnn_features", seed, cmd, gnn_data, "gnn_features",
+            gnn_data / "node_features.pt",
+            stage="gnn_features", model="PURN-CNN-feat", exp_id="gnn_features_purn",
+        )
+
     # ---- 管线渲染器 ----------------------------------------------------------
 
     def _app_source_dirs(self, seed: int) -> tuple[Path, Path, Path]:
@@ -410,6 +570,39 @@ class Planner:
                "--p_add", "100", "--prob_thresh", "0.7"]
         self._emit("app_infer", "gnn", seed, cmd, sage_dir, "inference", sage_dir / "inference_results_sage.csv",
                    model="PURN+GNN-infer", exp_id="app_infer_gnn")
+
+    def render_app_spatial(self) -> None:
+        """空间连贯性分析：消费 app_infer 的三个整域概率场（CNN-PN / PURN-CNN / PURN+GNN-SAGE），
+        计算 Moran's I / 残差自相关 / 不确定度-地形相关性，支撑"GNN 价值是空间连贯性"主张。"""
+        seed = self.seeds[0]
+        pn_dir, purn_dir, sage_dir = self._app_source_dirs(seed)
+        processed = str(self.val("cmp_main_cnn", "processed_dir", "data/processed"))
+        out_dir = self.out_root / "app_spatial_coherence"
+        infer_csvs = (
+            f"CNN-PN:{pn_dir / 'inference_results.csv'},"
+            f"PURN-CNN:{purn_dir / 'inference_results.csv'},"
+            f"PURN+GNN:{sage_dir / 'inference_results_sage.csv'}"
+        )
+        cmd = [
+            self.py,
+            "-m",
+            "analysis.spatial_coherence",
+            "--patches_csv",
+            str(self.val("app_spatial", "patches_csv", f"{processed}/patches_info.csv")),
+            "--infer_csvs",
+            infer_csvs,
+            "--graph_k",
+            str(self.val("cmp_main_gnn", "graph_k", 8)),
+            "--rn_slope_thresh",
+            str(self.val("app_spatial", "rn_slope_thresh", 45.0)),
+            "--rn_water_thresh",
+            str(self.val("app_spatial", "rn_water_thresh", 0.5)),
+            "--out_dir",
+            str(out_dir),
+        ]
+        self._emit("app_spatial", "spatial", seed, cmd, out_dir, "spatial_coherence",
+                   out_dir / "spatial_coherence_summary.csv", model="SpatialCoherence",
+                   exp_id="app_spatial_coherence")
 
     def render_app_prob_map(self) -> None:
         """概率地图 vs 地形地图：消费 app_infer 的最终模型（SAGE）推理输出，跑 analysis.prob_map。"""
@@ -472,10 +665,15 @@ class Planner:
         for name in exp_names:
             meta = get(name)
             if meta.status == STATUS_REVOKED:
-                print(f"[plan] skip {name}: 已撤销（abla_structure）")
+                print(f"[plan] skip {name}: 已撤销，结果留档")
                 continue
             if name in _EXTERNAL_EXPS:
+                # 图域基线需要折对齐特征（P0-1），先于基线作业渲染提取作业（dedup）
+                self._render_gnn_features()
                 self._render_external()
+                if name == "cmp_pu_baseline":
+                    self._render_gbdt()        # CPU 分钟级 tabular 基线，组①主对比表
+                    self._render_physics_only()  # 无学习参考行（先验 vs 学习分解）
                 continue
             if name in _PIPELINE_EXPS:
                 getattr(self, f"render_{name}")()
@@ -485,8 +683,12 @@ class Planner:
                 print(f"[plan] skip {name}: cells 为空（待补实验）")
                 continue
             if cfg.get("stage") == "gnn":
+                # 折对齐特征先于 GNN 训练作业（dedup）；cmp_main_cnn 已先于 gnn 渲染
+                self._render_gnn_features()
                 self._render_gnn(name)
             else:
+                if name == "sens_rn_threshold":
+                    self._render_rn_counts()  # 纯计算计数表（零 GPU），先于训练配置
                 self._render_cnn(name)
         return self.jobs
 
@@ -567,7 +769,7 @@ def main() -> None:
     parser.add_argument("--exp", nargs="*", default=[], help="语义实验名（experiments/registry.py）")
     parser.add_argument("--subset", nargs="*", default=[], help="legacy E 编号（经 registry.by_legacy 解析）")
     parser.add_argument("--seeds", default="", help="逗号分隔 seed 列表；空 = base.yaml 默认")
-    parser.add_argument("--external_seeds", default="", help="外部基线 seeds（空 = base.yaml 默认）")
+    parser.add_argument("--external_seeds", default="", help="对比方法（基线）seeds（空 = base.yaml 默认）")
     parser.add_argument("--out_root", default="outputs/exp_closure_20260315")
     parser.add_argument("--execute", action="store_true", help="渲染后立即执行（默认 dry-run）")
     parser.add_argument("--stop_on_error", action="store_true")
@@ -600,8 +802,8 @@ def main() -> None:
     overrides = {k: v for k, v in vars(ns).items() if v is not None and k in overridable}
 
     out_root = Path(ns.out_root).resolve()
-    seeds = parse_seeds(ns.seeds, "42,52,62")
-    external_seeds = parse_seeds(ns.external_seeds, "42,52,62")
+    seeds = parse_seeds(ns.seeds, "42")  # 2026-08-12 单 seed 决策：不再跑多 seed
+    external_seeds = parse_seeds(ns.external_seeds, "42")
     exp_names = resolve_exp_names(ns.exp, ns.subset)
 
     planner = Planner(out_root, seeds, external_seeds, overrides, fast_2fold=ns.fast_2fold)

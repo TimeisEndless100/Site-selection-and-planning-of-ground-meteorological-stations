@@ -32,6 +32,7 @@ from src.core.exp_logger import ExperimentLogger
 from src.core.rn import assign_sets
 from src.core.metrics import compute_metric_pack
 from src.core.seed import set_seed
+from runner.train.extract_features import extract_fold_features, load_pid_sorted_df
 
 
 class LinearUPU(nn.Module):
@@ -198,11 +199,16 @@ def train_appnp_predict(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gnn_data_dir", type=str, default="data/gnn_ready")
+    parser.add_argument("--processed_dir", type=str, default="data/processed",
+                        help="patches_info.csv 所在目录（自动提取折特征时的元数据源）")
+    parser.add_argument("--cnn_ckpt_dir", type=str, default="",
+                        help="PURN CNN 主配置训练目录（含 fold_*/model_best.pth + stats.json）；"
+                             "折特征文件缺失时用于自动提取（P0-1）")
     parser.add_argument("--out_dir", type=str, default="outputs/exp_closure/external")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--grid_size", type=int, default=10)
     parser.add_argument("--buffer_cells", type=int, default=0, help="Optional buffered split radius in grid cells")
-    parser.add_argument("--seeds", type=str, default="42,52,62")
+    parser.add_argument("--seeds", type=str, default="42")  # 2026-08-12 单 seed 决策
     parser.add_argument("--fold_ids", type=str, default="")
     parser.add_argument("--rn_slope_thresh", type=float, default=45.0)
     parser.add_argument("--rn_water_thresh", type=float, default=0.5)
@@ -230,16 +236,23 @@ def main() -> None:
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     seeds = [int(x) for x in args.seeds.split(",") if x.strip()]
 
-    x = torch.load(Path(args.gnn_data_dir) / "node_features.pt", map_location="cpu").numpy()
-    df_meta = pd.read_csv(Path(args.gnn_data_dir) / "nodes_metadata.csv")
-    edge_index = torch.load(Path(args.gnn_data_dir) / "edge_index.pt", map_location="cpu")
+    # P0-1（2026-08-12）：不再读全局 node_features.pt。特征在折循环内按折加载
+    # （node_features_fold_<f>.pt），与 GNN 同源 → 图域基线折对齐公平。
+    gnn_dir = Path(args.gnn_data_dir)
+    meta_path = gnn_dir / "nodes_metadata.csv"
+    if meta_path.exists():
+        df_meta = pd.read_csv(meta_path)
+    else:
+        df_meta = load_pid_sorted_df(args.processed_dir)
+        df_meta.to_csv(meta_path, index=False)
+    edge_index = torch.load(gnn_dir / "edge_index.pt", map_location="cpu")
     df = assign_sets(
         df_meta,
         rn_slope_thresh=args.rn_slope_thresh,
         rn_water_thresh=args.rn_water_thresh,
         rn_strategy="physics",
         seed=42,
-    )
+    ).reset_index(drop=True)
 
     all_rows = []
     negative_rows = []
@@ -264,6 +277,24 @@ def main() -> None:
                 continue
             train_idx = np.asarray(train_idx)
             val_idx = np.asarray(val_idx)
+
+            # P0-1：按折加载特征（与 GNN 同源，第 f 折 CNN 提取）。
+            feat_path = gnn_dir / f"node_features_fold_{fold_idx}.pt"
+            if not feat_path.exists():
+                if not args.cnn_ckpt_dir:
+                    raise FileNotFoundError(
+                        f"{feat_path.name} 缺失且未给 --cnn_ckpt_dir；请先跑 "
+                        f"python -m runner.train.extract_features。"
+                    )
+                extract_fold_features(
+                    df, args.cnn_ckpt_dir, args.processed_dir, feat_path, fold_idx,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                )
+            x = torch.load(feat_path, map_location="cpu").numpy()
+            if x.shape[0] != len(df):
+                raise RuntimeError(
+                    f"fold_{fold_idx}: 特征行数 {x.shape[0]} != 元数据行数 {len(df)}（pid 对齐破坏）"
+                )
 
             # Fit scaler on train fold only to avoid leaking validation statistics.
             scaler = StandardScaler().fit(x[train_idx])
@@ -438,8 +469,11 @@ def main() -> None:
                     "fold": fold_idx,
                     "seed": seed,
                     "auc": mp.auc,
+                    "auc_pu": mp.auc_pu,
                     "auprc": mp.auprc,
                     "brier": mp.brier,
+                    "ece": mp.ece,
+                    "ece_pu": mp.ece_pu,
                     "sep_prn": mp.sep_prn,
                     "recall_k": mp.recall_k,
                     "rmclp_gain": np.nan,
@@ -461,8 +495,8 @@ def main() -> None:
     pd.DataFrame(negative_rows).to_csv(out_neg, index=False)
     logger.log_artifact(path=out_main, artifact_type="results_external_csv", fold=-1)
     logger.log_artifact(path=out_neg, artifact_type="negative_external_csv", fold=-1)
-    print(f"Saved external baseline results: {out_main}")
-    print(f"Saved external baseline failures: {out_neg}")
+    print(f"Saved baseline method results: {out_main}")
+    print(f"Saved baseline method failures: {out_neg}")
     logger.finalize_run(status="success")
 
 

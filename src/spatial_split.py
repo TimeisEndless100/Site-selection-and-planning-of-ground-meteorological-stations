@@ -6,10 +6,22 @@ def _prepare_spatial_blocks(df: pd.DataFrame, grid_size: int, seed: int, n_split
     out = df.copy()
     out["lon_bin"] = pd.cut(out["lon"], bins=grid_size, labels=False)
     out["lat_bin"] = pd.cut(out["lat"], bins=grid_size, labels=False)
-    blocks = out[["lon_bin", "lat_bin"]].drop_duplicates().reset_index(drop=True)
-    rng = np.random.RandomState(seed)
-    blocks["fold_id"] = rng.randint(0, n_splits, size=len(blocks))
-    out = out.merge(blocks, on=["lon_bin", "lat_bin"], how="left")
+    # 2026-08-12（P0-1 级联折对齐 + 折划分分层）：
+    #  1) 块聚合改用 groupby（按键排序 → 与 df 行序无关）。旧实现 drop_duplicates 的块顺序
+    #     依赖 df 行序，CNN（原始序）与 GNN（pid 排序序）会得到不同的 block→fold 分配，
+    #     是"级联折不对齐"的根源之一。
+    #  2) seed 洗牌保留"不同 seed → 不同折划分"语义；块顺序已固定，故折划分结果与 df 行序无关。
+    #  3) 按 P 数量降序稳定排序后 round-robin 分配 → 每折 P 总量均衡（分层），
+    #     避免某折 val P 过少 → AUC 未定义 / AUPRC、Brier 跨折不可比。
+    blocks = (
+        out.groupby(["lon_bin", "lat_bin"], sort=True)
+        .agg(p_count=("is_P", "sum"), n_patch=("is_P", "size"))
+        .reset_index()
+    )
+    blocks = blocks.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    blocks = blocks.sort_values("p_count", ascending=False, kind="stable")
+    blocks["fold_id"] = np.arange(len(blocks)) % n_splits
+    out = out.merge(blocks[["lon_bin", "lat_bin", "fold_id"]], on=["lon_bin", "lat_bin"], how="left")
     return out
 
 

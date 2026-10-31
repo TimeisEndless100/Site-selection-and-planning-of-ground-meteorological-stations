@@ -3,10 +3,10 @@
 
 将模型整域推理的预测概率"重聚合为地图"，用物理地形约束（slope/water/DEM）做空间校验：
 - **Spearman 相关**：prob_mean ↔ 各地形特征（学得概率是否与地形规则方向一致）。
-- **RN 吻合**：物理不可行格（RN 判定，复用 src/core/rn.assign_sets）vs 非 RN 格的
-  prob_mean 均值差——模型是否给物理不可行格低概率。
-- **概率十分位 → 地形均值**：高概率格是否集中在地形可行区。
-- **高概率格（top 10%）物理可行率**：学得模型是否尊重物理约束。
+- **RN 吻合**：物理不可行单元（RN 判定，复用 src/core/rn.assign_sets）vs 非 RN 单元的
+  prob_mean 均值差——模型是否给物理不可行单元低概率。
+- **概率十分位 → 地形均值**：高概率单元是否集中在地形可行区。
+- **高概率单元（top 10%）物理可行率**：学得模型是否尊重物理约束。
 
 消费 app_infer 的推理输出（默认最终模型 purn_gnn 的 inference_results_sage.csv）
 与 patches_info.csv（地形特征）。管线作业由 runner.plan 的 render_app_prob_map 生成。
@@ -17,7 +17,7 @@
 输出（均落 out_dir）：
 - prob_map_summary.csv   长表（metric, feature, value, n）：相关 + RN 吻合 + top10 可行率
 - prob_map_deciles.csv   概率十分位 → 各地形均值（宽表）
-- prob_map_merged.csv    逐格合并表（prob + terrain + is_rn + prob_decile），供 reporting.figures probmap 渲染
+- prob_map_merged.csv    逐单元合并表（prob + terrain + is_rn + prob_decile），供 reporting.figures probmap 渲染
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ TERRAIN_FEATURES = ["slope_max", "slope_mean", "water_ratio", "dem_mean"]
 
 
 def load_merged(infer_csv: Path, patches_csv: Path) -> pd.DataFrame:
-    """推理输出 × patches 按 pid 合并，产出含 prob + 地形特征的逐格表。"""
+    """推理输出 × patches 按 pid 合并，产出含 prob + 地形特征的逐单元表。"""
     df_infer = pd.read_csv(infer_csv)
     df_patch = pd.read_csv(patches_csv)
 
@@ -82,7 +82,7 @@ def summarize(df: pd.DataFrame, rn_slope_thresh: float, rn_water_thresh: float) 
         rows.append({"metric": "spearman_rho", "feature": feat, "value": float(rho), "n": len(valid)})
         rows.append({"metric": "spearman_p", "feature": feat, "value": float(p), "n": len(valid)})
 
-    # 2. RN 吻合（物理不可行格 vs 非 RN 格）
+    # 2. RN 吻合（物理不可行单元 vs 非 RN 单元）
     df_rn = assign_sets(
         df,
         rn_slope_thresh=rn_slope_thresh,
@@ -100,7 +100,7 @@ def summarize(df: pd.DataFrame, rn_slope_thresh: float, rn_water_thresh: float) 
     rows.append({"metric": "prob_diff_non_rn_minus_rn", "feature": "all", "value": float(prob_non.mean() - prob_rn.mean()) if len(prob_rn) and len(prob_non) else np.nan, "n": int(len(df))})
     rows.append({"metric": "rn_frac", "feature": "all", "value": float(is_rn.mean()), "n": int(len(df))})
 
-    # 3. 高概率格（top 10%）物理可行率
+    # 3. 高概率单元（top 10%）物理可行率
     k = max(1, int(0.1 * len(df)))
     top_idx = np.argsort(df["prob_mean"].values)[::-1][:k]
     top = df.iloc[top_idx]
@@ -115,7 +115,7 @@ def summarize(df: pd.DataFrame, rn_slope_thresh: float, rn_water_thresh: float) 
 
 
 def assign_deciles(df: pd.DataFrame, n_deciles: int) -> pd.DataFrame:
-    """给逐格表加 prob_decile 列（pd.qcut 十分位；重复边界自动合并）。"""
+    """给逐单元表加 prob_decile 列（pd.qcut 十分位；重复边界自动合并）。"""
     df = df.copy()
     df["prob_decile"] = pd.qcut(
         df["prob_mean"], q=n_deciles, labels=False, retbins=False, duplicates="drop"

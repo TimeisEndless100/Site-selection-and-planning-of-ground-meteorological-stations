@@ -1,39 +1,51 @@
-# 敏感性实验：连续参数扫描，测结论稳健性（非选最优，最优格不写"改进"）
+# 敏感性实验：连续参数扫描，测结论稳健性（非选最优，最优配置不写"改进"）
 # exp: sens_rn_threshold, sens_pi, sens_lambda, sens_graph_k, sens_fold_grid, sens_feature
 family: sensitivity
 _planned_note: 下 3 个为「待补」实验（registry 状态 = planned），cells 待定，先占位保证注册表↔配置一致
 base:
   folds: 5
-  seeds: [42, 52, 62]
+  seeds: [42]  # 2026-08-12 单 seed 决策（base.yaml 同）；本文件旧值 [42,52,62] 已废弃
 
 # —— RN 阈值 slope×water（原 E2）——
-# 改造：每档输出附 RN/U/P 三类计数，暴露数据构成随阈值漂移（阈值换的是标签，不是模型）
+# 2026-08-12（专家评审 P0）：阈值换的是**标签构成**不是模型，故：
+#   · RN/U/P 标签构成表由 analysis.rn_counts 纯计算生成（零 GPU，网格可更密，
+#     见下方 count_grid；runner.plan 渲染 rn_counts 作业，消费 patches_info.csv）
+#   · 训练配置只保留 4 个代表性阈值（对角 + 默认参照点 + 中间），检验结论排序是否保持
 sens_rn_threshold:
   stage: cnn
-  metric: "指标变化区间 + 计数漂移"
+  metric: "指标变化区间 + 构成变化"
   report:
-    - "每档 RN/U/P 计数（随阈值变化）"
-    - "结论排序是否保持（如 PURN > PN 是否稳定）"
+    - "每档 RN/U/P 计数（随阈值变化，纯计算表 rn_counts.csv）"
+    - "结论排序是否保持（如 PURN > PN 是否稳定，训练配置 4 个）"
+  count_grid:
+    slope: [30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0]
+    water: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
   cells:
-    slope: [35.0, 40.0, 45.0, 50.0, 55.0]
-    water: [0.3, 0.5, 0.7]
+    - {slope: 35.0, water: 0.3, label: s35_w0.3}   # 更松：更多 RN，先验更强
+    - {slope: 45.0, water: 0.5, label: s45_w0.5}   # 默认参照点 = cmp_main_cnn
+    - {slope: 50.0, water: 0.6, label: s50_w0.6}   # 中间
+    - {slope: 55.0, water: 0.7, label: s55_w0.7}   # 更严：更少 RN
 
 # —— 类先验 π（原 E3）——
 # 改造：预设网格 + ECE/Brier 校准类指标（π 决定 nnPU 估计偏置，直接看校准）
+# 2026-08-12（P0-4 修复）：网格改为包围默认点——默认 estimated π≈0.1 / pi_ref 0.15，
+# 旧网格 [0.2..0.6] 不含默认点，敏感性结论悬空。
 sens_pi:
   stage: cnn
   metric: "AUC + ECE/Brier"
   cells:
-    pi: [0.2, 0.3, 0.4, 0.5, 0.6]
+    pi: [0.05, 0.1, 0.15, 0.2, 0.3]
 
 # —— RN 惩罚强度 λ_rn（原 E4）——
-# 扩对数网格；λ_rn=0 时 RN 信号被完全丢弃，若指标崩塌 → 最扎实的机制证据（RN 必要性）
+# λ_rn=0 时 RN 信号被完全丢弃，若指标崩塌 → 最扎实的机制证据（RN 必要性）
+# 2026-08-12（用户决策）：0–1 均匀网格（审稿人常见，弃对数网格）；默认 λ_rn=1.0 为端点，
+# 不设 λ>1（默认点已覆盖机制讨论带；如需验证"λ>1 无害"可追加一个 2.0 配置）
 sens_lambda:
   stage: cnn
   metric: "AUC/AUPRC（λ 扫描）"
   cells:
     lambda_rn: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-  note: λ=0 格与 abla_objective 的 No-RN 格等价，聚合时去重；0–1 均匀网格（步长 0.2），λ>1 超出当前机制讨论带
+  note: λ=0 配置与 abla_objective 的 No-RN 配置等价，聚合时去重
 
 # —— 以下为「待补」实验（🟡 中优先，占位配置）——
 sens_graph_k:

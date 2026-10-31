@@ -34,6 +34,7 @@ from sklearn.metrics import (
 )
 
 from src.dataset import PUSpatialDataset
+from src.core.metrics import expected_calibration_error
 from src.model import GeoConvNeXt
 from src.loss import nnpu_loss, bce_with_logits, taylor_pu_loss
 from src.spatial_split import make_spatial_folds, make_spatial_folds_buffered
@@ -47,7 +48,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--processed_dir", type=str, default="data/processed")
     parser.add_argument("--out_dir", type=str, default="outputs/exp_v1_enhanced")
-    parser.add_argument("--mode", type=str, default="pu", choices=["pu", "pn", "taylor"])
+    # 2026-08-12（P0-2）：bce = 全监督 P-vs-RN（丢弃 U），隔离 nnPU 必要性（abla_objective）
+    parser.add_argument("--mode", type=str, default="pu", choices=["pu", "pn", "taylor", "bce"])
 
     # RN 筛选
     parser.add_argument("--rn_slope_thresh", type=float, default=45.0)
@@ -201,7 +203,10 @@ def estimate_pi(model, df_P, processed_dir, stats, device, num_workers=0):
 
 
 def _val_auc(model, dl_val, device) -> float:
-    """验证集 ROC-AUC（P=1，其余=0），用于逐 epoch 最优模型选择（P5）。
+    """验证集全域 ROC-AUC（P=1，其余=0），用于逐 epoch 最优模型选择（P5）。
+
+    选择指标 = 全域 auc（RN 提供大量稳定负样本，逐 epoch 曲线平滑），报告指标 =
+    候选域 auc_pu（见最终评估）。两者相关性高，选择用全域、报告用 P∪U 口径。
 
     验证集无 P（或全 P）时 AUC 未定义，返回 NaN（调用方跳过该 epoch 的选优）。
     num_workers=0：验证集仅 ~4.4k patch，且需逐 epoch 复用，避免每次迭代重开 worker
@@ -368,6 +373,54 @@ def main():
                 )
 
         # ====================================================
+        # 模式 D: Supervised P-vs-RN（丢弃 U）—— 隔离 nnPU 必要性（P0-2）
+        # ====================================================
+        elif args.mode == 'bce':
+            print("  [Mode: BCE] Fully-supervised P vs RN (U dropped)...")
+            df_train_bce = df_train[df_train['set'].isin(['P', 'RN'])].copy()
+            if len(df_train_bce[df_train_bce['set'] == 'RN']) == 0:
+                raise RuntimeError(
+                    f"Fold {fold_idx} has empty RN set for bce mode（P-vs-RN 需 RN 样本）"
+                )
+            df_train_bce.loc[df_train_bce['set'] == 'P', 'label'] = 1.0
+            df_train_bce.loc[df_train_bce['set'] == 'RN', 'label'] = 0.0
+
+            ds_bce = PUSpatialDataset(df_train_bce, args.processed_dir, stats)
+            dl_bce = DataLoader(ds_bce, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True, persistent_workers=args.num_workers > 0)
+
+            for ep in range(warmup_epochs + args.nnpu_epochs):
+                ep_start = time.time()
+                model.train()
+                losses = []
+                for x, y in tqdm(dl_bce, leave=False, desc=f"BCE Ep {ep}"):
+                    optimizer.zero_grad()
+                    loss = bce_with_logits(model(x.to(device)), y.to(device))
+                    loss.backward()
+                    optimizer.step()
+                    losses.append(loss.item())
+
+                avg_loss = np.mean(losses)
+                val_auc = _val_auc(model, dl_val, device)
+                if not np.isnan(val_auc) and val_auc > best_auc:
+                    best_auc, best_epoch = val_auc, ep
+                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                print(f"  Ep {ep}: BCE Loss = {avg_loss:.4f} | valAUC = {val_auc:.4f}")
+                training_history.append({'epoch': ep, 'loss': avg_loss, 'val_auc': val_auc, 'p_score': np.nan, 'rn_score': np.nan})
+                logger.log_epoch(
+                    fold=fold_idx,
+                    epoch=ep,
+                    phase="bce",
+                    loss=float(avg_loss),
+                    val_auc=float(val_auc),
+                    lr=float(optimizer.param_groups[0]["lr"]),
+                    pi=np.nan,
+                    lambda_rn=np.nan,
+                    p_score=np.nan,
+                    rn_score=np.nan,
+                    time_sec=float(time.time() - ep_start),
+                )
+
+        # ====================================================
         # 模式 B & C: PU Learning (Standard / Taylor)
         # ====================================================
         else:
@@ -390,13 +443,15 @@ def main():
                         loss.backward()
                         optimizer.step()
                         losses.append(loss.item())
-                    # 记录 Warm-up 阶段
-                    training_history.append({'epoch': ep, 'loss': np.mean(losses), 'p_score': np.nan, 'rn_score': np.nan})
+                    # 记录 Warm-up 阶段（含 valAUC，供论文完整收敛曲线 + 峰值定位）
+                    val_auc_warm = _val_auc(model, dl_val, device)
+                    training_history.append({'epoch': ep, 'loss': np.mean(losses), 'val_auc': val_auc_warm, 'p_score': np.nan, 'rn_score': np.nan})
                     logger.log_epoch(
                         fold=fold_idx,
                         epoch=ep,
                         phase="warmup",
                         loss=float(np.mean(losses)),
+                        val_auc=float(val_auc_warm),
                         lr=float(optimizer.param_groups[0]["lr"]),
                         pi=np.nan,
                         lambda_rn=float(args.lambda_rn),
@@ -505,6 +560,7 @@ def main():
                 training_history.append({
                     'epoch': ep, 'loss': avg_loss,
                     'loss_pu': avg_loss_pu, 'loss_rn': avg_loss_rn,
+                    'val_auc': val_auc,
                     'p_score': p_score, 'rn_score': rn_score
                 })
                 logger.log_epoch(
@@ -514,6 +570,7 @@ def main():
                     loss=float(avg_loss),
                     loss_pu=avg_loss_pu,
                     loss_rn=avg_loss_rn,
+                    val_auc=float(val_auc),
                     lr=float(optimizer.param_groups[0]["lr"]),
                     pi=float(pi),
                     lambda_rn=float(args.lambda_rn),
@@ -525,7 +582,7 @@ def main():
         # --- Save Training History ---
         training_log_path = fold_dir / "training_log.csv"
         loss_curve_path = fold_dir / "loss_curve.png"
-        history_df = pd.DataFrame(training_history, columns=["epoch", "loss", "loss_pu", "loss_rn", "p_score", "rn_score"])
+        history_df = pd.DataFrame(training_history, columns=["epoch", "loss", "loss_pu", "loss_rn", "val_auc", "p_score", "rn_score"])
         history_df.to_csv(training_log_path, index=False)
         if len(history_df) > 0:
             plot_training_history(history_df, loss_curve_path)
@@ -557,6 +614,24 @@ def main():
         auc_val = roc_auc_score(y_true, y_score)
         ap_val = average_precision_score(y_true, y_score)
 
+        # 1b. 候选域 P∪U（剔除 RN）上的 P-vs-U AUC —— 跨模型公平比较主口径。
+        # 全域 auc 的负样本含 RN（其定义来自物理规则本身，见 sens_rn_threshold），
+        # 属"易"负样本，对学习增量有高估偏倚；且 physics-only 基线在 P∪U 上恒为
+        # 0.5（规则只筛不可建地、无法在候选站址内排序），故 P∪U 口径才是学习贡献
+        # 的公平可比值。全域 auc 保留为次口径 + P5 选优指标（RN 提供大量稳定负样本）。
+        mask_pu = (df_val["set"] != "RN").values
+        if mask_pu.sum() > 1 and len(np.unique(y_true[mask_pu])) > 1:
+            auc_pu = float(roc_auc_score(y_true[mask_pu], y_score[mask_pu]))
+        else:
+            auc_pu = float("nan")
+        # 校准：全域 + 候选域 ECE（sens_pi 的校准论证依赖；概率地图论文必答）
+        ece = expected_calibration_error(y_true, y_score)
+        ece_pu = (
+            expected_calibration_error(y_true[mask_pu], y_score[mask_pu])
+            if mask_pu.sum() > 1 and len(np.unique(y_true[mask_pu])) > 1
+            else float("nan")
+        )
+
         # 2. 校准度 Brier Score
         brier = brier_score_loss(y_true, y_score)
 
@@ -582,7 +657,7 @@ def main():
             recall_at_k = 0.0
 
         print(f"  Validation Stats:")
-        print(f"    ROC-AUC: {auc_val:.4f} | AP: {ap_val:.4f}")
+        print(f"    ROC-AUC: {auc_val:.4f} | AUC(P∪U): {auc_pu:.4f} | ECE: {ece:.4f} | ECE(P∪U): {ece_pu:.4f} | AP: {ap_val:.4f}")
         print(f"    Brier Score: {brier:.4f} (Lower is better)")
         print(f"    P-RN Sep: {separation:.4f} (P={score_p_mean:.2f}, RN={score_rn_mean:.2f})")
         print(f"    Recall@K (K={k}): {recall_at_k:.4f}")
@@ -606,13 +681,16 @@ def main():
         logger.log_artifact(path=model_path, artifact_type="model_checkpoint", fold=fold_idx)
 
         # 汇总结果
-        final_pi = 0 if args.mode == 'pn' else (args.pi_prior if args.pi_prior else pi)
+        final_pi = 0 if args.mode in ('pn', 'bce') else (args.pi_prior if args.pi_prior else pi)
         runtime_min = (time.time() - fold_start) / 60.0
         results.append({
             "fold": fold_idx,
             "auc": auc_val,
+            "auc_pu": auc_pu,
             "ap": ap_val,
             "brier": brier,
+            "ece": ece,
+            "ece_pu": ece_pu,
             "separation": separation,
             "recall_k": recall_at_k,
             "pi": final_pi,

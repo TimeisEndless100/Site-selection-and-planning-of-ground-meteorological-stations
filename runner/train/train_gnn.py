@@ -31,6 +31,7 @@ from src.gnn_model import NodeMLP, SpatialGAT, SpatialGCN, SpatialSAGE
 from src.graph_builder import build_grid_graph
 from src.loss import bce_with_logits, nnpu_loss
 from src.spatial_split import make_spatial_folds, make_spatial_folds_buffered
+from runner.train.extract_features import extract_fold_features, load_pid_sorted_df
 
 
 def train_epoch(
@@ -86,8 +87,11 @@ def evaluate_metric_pack(model: torch.nn.Module, data: Data, mask: torch.Tensor 
     mp = compute_metric_pack(y_true=y_true, y_score=y_score, mask_p=mask_p, mask_rn=mask_rn)
     return {
         "auc": mp.auc,
+        "auc_pu": mp.auc_pu,
         "auprc": mp.auprc,
         "brier": mp.brier,
+        "ece": mp.ece,
+        "ece_pu": mp.ece_pu,
         "sep_prn": mp.sep_prn,
         "recall_k": mp.recall_k,
     }
@@ -108,6 +112,11 @@ def build_model(gnn_type: str, in_ch: int, device: torch.device) -> torch.nn.Mod
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gnn_data_dir", default="data/gnn_ready")
+    parser.add_argument("--processed_dir", type=str, default="data/processed",
+                        help="patches_info.csv 所在目录（自动提取折特征时的元数据源）")
+    parser.add_argument("--cnn_ckpt_dir", type=str, default="",
+                        help="PURN CNN 主配置训练目录（含 fold_*/model_best.pth + stats.json）；"
+                             "折特征文件缺失时用于自动提取（P0-1）")
     parser.add_argument("--out_dir", default="outputs/exp_gnn_compare")
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--lr", type=float, default=0.005)
@@ -145,10 +154,19 @@ def main() -> None:
         data_paths={"gnn_data_dir": args.gnn_data_dir},
     )
 
-    x = torch.load(Path(args.gnn_data_dir) / "node_features.pt", map_location="cpu")
-    df = pd.read_csv(Path(args.gnn_data_dir) / "nodes_metadata.csv")
+    # P0-1（2026-08-12）：不再读全局 node_features.pt。特征在折循环内按折加载
+    # （node_features_fold_<f>.pt，由 extract_features 产出或用 --cnn_ckpt_dir 自动提取），
+    # 保证 GNN val 节点特征来自排除过它的 CNN，关闭特征级泄露。
+    gnn_dir = Path(args.gnn_data_dir)
+    meta_path = gnn_dir / "nodes_metadata.csv"
+    if meta_path.exists():
+        df = pd.read_csv(meta_path)  # pid 排序对齐（extract_features 写出的元数据）
+    else:
+        # 自给：extract_features 未跑时，用 processed 元数据 pid 排序对齐
+        df = load_pid_sorted_df(args.processed_dir)
+        df.to_csv(meta_path, index=False)
 
-    edge_path = Path(args.gnn_data_dir) / "edge_index.pt"
+    edge_path = gnn_dir / "edge_index.pt"
     if edge_path.exists():
         edge_index = torch.load(edge_path, map_location="cpu")
     else:
@@ -157,7 +175,7 @@ def main() -> None:
 
     if args.self_loop_only:
         # abla_graph「同架构无传播」对照：每个节点只聚合自身，等价于逐节点 MLP
-        n = x.size(0)
+        n = len(df)
         edge_index = torch.stack([torch.arange(n), torch.arange(n)], dim=0)
         print(f"  [Info] self_loop_only: 图替换为 {n} 个自环，无节点间传播")
 
@@ -167,7 +185,7 @@ def main() -> None:
         rn_water_thresh=args.rn_water_thresh,
         rn_strategy="physics",
         seed=args.seed,
-    )
+    ).reset_index(drop=True)
     y = torch.tensor(df["is_P"].values, dtype=torch.float32)
     sets = torch.zeros(len(df), dtype=torch.long)
     sets[df["set"] == "P"] = 1
@@ -187,10 +205,6 @@ def main() -> None:
     if args.fold_ids.strip():
         run_fold_ids = {int(x) for x in args.fold_ids.split(",") if x.strip()}
 
-    full_data = Data(x=x, edge_index=edge_index, y=y)
-    full_data.sets = sets
-    full_data = full_data.to(device)
-
     rows: list[dict[str, float | int | str]] = []
     for fold_idx, (train_idx, val_idx) in enumerate(folds):
         if fold_idx not in run_fold_ids:
@@ -199,6 +213,28 @@ def main() -> None:
         fold_start = time.time()
         fold_dir = out_dir / f"fold_{fold_idx}"
         fold_dir.mkdir(parents=True, exist_ok=True)
+
+        # P0-1：按折加载特征（第 f 折 CNN 提取，排除过该折 val）。缺则用 --cnn_ckpt_dir 自动提取。
+        feat_path = gnn_dir / f"node_features_fold_{fold_idx}.pt"
+        if not feat_path.exists():
+            if not args.cnn_ckpt_dir:
+                raise FileNotFoundError(
+                    f"{feat_path.name} 缺失且未给 --cnn_ckpt_dir；请先跑 "
+                    f"python -m runner.train.extract_features（或经 runner.plan 的 gnn_features 作业）。"
+                )
+            print(f"  [Info] 缺 {feat_path.name}，用 fold_{fold_idx} CNN checkpoint 提取…")
+            extract_fold_features(
+                df, args.cnn_ckpt_dir, args.processed_dir, feat_path, fold_idx,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        x = torch.load(feat_path, map_location="cpu")
+        if x.size(0) != len(df):
+            raise RuntimeError(
+                f"fold_{fold_idx}: 特征行数 {x.size(0)} != 元数据行数 {len(df)}（pid 对齐破坏）"
+            )
+        full_data = Data(x=x, edge_index=edge_index, y=y)
+        full_data.sets = sets
+        full_data = full_data.to(device)
 
         train_mask = torch.zeros(len(df), dtype=torch.bool)
         train_mask[train_idx] = True
@@ -337,8 +373,11 @@ def main() -> None:
                 "seed": args.seed,
                 "eval_mode": args.eval_mode,
                 "auc": metrics["auc"],
+                "auc_pu": metrics["auc_pu"],
                 "auprc": metrics["auprc"],
                 "brier": metrics["brier"],
+                "ece": metrics["ece"],
+                "ece_pu": metrics["ece_pu"],
                 "sep_prn": metrics["sep_prn"],
                 "recall_k": metrics["recall_k"],
                 "runtime_min": runtime_min,

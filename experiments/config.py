@@ -6,7 +6,7 @@
       <key>: <value>
     <exp_name>:      # 每个实验一个顶级键
       stage: cnn|gnn|decision
-      cells: ...     # 该实验操纵的格子
+      cells: ...     # 该实验操纵的配置
 """
 from __future__ import annotations
 

@@ -3,10 +3,10 @@
 family: comparison
 base:
   folds: 5
-  seeds: [42, 52, 62]
+  seeds: [42]  # 2026-08-12 单 seed 决策（base.yaml 同）：不再跑多 seed，避免"挑最优 seed"选择偏倚
   grid_size: 10
 
-# —— 桶① CNN 阶段（与 cmp_pu_baseline 同表）——
+# —— 组① CNN 阶段（与 cmp_pu_baseline 同表）——
 cmp_main_cnn:
   stage: cnn
   cells:
@@ -14,7 +14,7 @@ cmp_main_cnn:
     - {method: pn,     mode: pn,     label: PN}
     - {method: taylor, mode: taylor, label: TaylorPU}
 
-# —— 桶② GNN 阶段（与 cmp_graph_baseline 同表）——
+# —— 组② GNN 阶段（与 cmp_graph_baseline 同表）——
 cmp_main_gnn:
   stage: gnn
   cells:

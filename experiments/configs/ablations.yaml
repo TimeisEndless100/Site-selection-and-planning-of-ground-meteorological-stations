@@ -8,7 +8,7 @@ base:
 abla_rn_source:
   stage: cnn
   cells:
-    - {rn_strategy: physics, label: physics}   # 默认锚点 = cmp_main_cnn
+    - {rn_strategy: physics, label: physics}   # 默认参照点 = cmp_main_cnn
     - {rn_strategy: random,  label: random}
     - {rn_strategy: none,    label: none}
     - {rn_strategy: noisy,   noise_rate: 0.1, label: noisy10}
@@ -21,11 +21,13 @@ abla_objective:
   stage: cnn
   cells:
     - {label: PURN-full,  warm_epochs: 5,  nnpu_epochs: 15, lambda_rn: 1.0, mode: pu}
-    - {label: Supervised, warm_epochs: 20, nnpu_epochs: 0,  lambda_rn: 1.0, mode: bce}   # 补：全监督 P-vs-RN（PU 必要性）
+    # 2026-08-12（P0-2）：bce = 全监督 P-vs-RN（丢弃 U），已修 train_cnn --mode 使其可跑；
+    # 该配置隔离 nnPU 必要性（同数据下 PU vs 全监督）
+    - {label: Supervised, warm_epochs: 20, nnpu_epochs: 0,  lambda_rn: 1.0, mode: bce}
     - {label: No-RN,      warm_epochs: 5,  nnpu_epochs: 15, lambda_rn: 0.0, mode: pu}
     - {label: No-warmup,  warm_epochs: 0,  nnpu_epochs: 20, lambda_rn: 1.0, mode: pu}    # 预算 15→20（P1 修复）
     - {label: nnPU-only,  warm_epochs: 0,  nnpu_epochs: 20, lambda_rn: 0.0, mode: pu}
-  note: 所有格子 epoch 总数 = 20；Supervised 格是当前最缺的一格
+  note: 所有配置 epoch 总数 = 20；Supervised 配置（P-vs-RN）为 PU 必要性对照
 
 # —— 组件：图传播（原 E14，补同架构自环图对照）——
 abla_graph:

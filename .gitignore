@@ -1,8 +1,10 @@
-# 数据（5.1 GB，不入库）
-data/
+# 数据（5.1 GB，不入库；仅保留空目录占位）
+data/*
+!data/.gitkeep
 
-# 实验产物（1.7 GB，可由代码重跑，不入库）
-outputs/
+# 实验产物（1.7 GB，可由代码重跑，不入库；仅保留空目录占位）
+outputs/*
+!outputs/.gitkeep
 
 # 虚拟环境与缓存
 .venv/
@@ -19,6 +21,10 @@ __pycache__/
 
 # 删除 CBAM/CoordConv 前的手工备份（git 已接管代码版本历史）
 .backup_20260807_remove_cbam_cc/
+.backup*/
+
+# 本地 Claude Code 配置
+.claude/
 
 # 渲染图产物（可由 reporting.schematics --figure 重跑）
 docs/figures_generated/

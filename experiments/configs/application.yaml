@@ -1,12 +1,21 @@
 # 应用展示：概率地图 vs 地形地图差异（应用指标与预测指标不可混比）
-# exp: app_infer, app_prob_map
+# exp: app_infer, app_spatial, app_prob_map
 family: application
 
 # 整域推理（原 E9）：CNN 概率图 → 概率地图源；本身不单独成表
 app_infer:
   stage: cnn
   output: "全域概率栅格（概率地图源）"
-  downstream: [app_prob_map]
+  downstream: [app_spatial, app_prob_map]
+
+# 空间连贯性分析（2026-08-12 评审新增）：消费 app_infer 三个整域概率场，
+# 支撑"GNN 价值是空间连贯性而非 AUC 增益"主张（Moran's I / 残差自相关 / 不确定度-地形相关）
+app_spatial:
+  stage: analysis
+  metric: moran_i
+  rn_slope_thresh: 45.0
+  rn_water_thresh: 0.5
+  note: 与 AUC 不可混比；需先 app_infer 产出 3 个推理 CSV
 
 # 概率地图 vs 地形地图（原 E10 决策链撤销后的应用重定向）
 # 将模型预测概率重聚合为地图，用物理地形约束（slope/water/DEM）做空间校验，

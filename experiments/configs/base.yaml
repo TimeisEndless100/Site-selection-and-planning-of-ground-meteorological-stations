@@ -1,7 +1,8 @@
 # 全局实验骨架：所有实验族继承的共享默认值
 # 对应论文「§4.1 实验设置」的机器可读版本。默认值 = 论文主数字。
 folds: 5
-seeds: [42, 52, 62]
+# 2026-08-12：单 seed 决策（评审 P0）——不再跑多 seed，定默认值 42 最诚实，避免"挑最优 seed"的选择偏倚
+seeds: [42]
 grid_size: 10
 device: cuda
 metrics: [auc, auprc, brier, recall_k]
@@ -11,7 +12,11 @@ processed_dir: data/processed
 gnn_data_dir: data/gnn_ready
 demand_csv: data/processed/demand_per_patch.csv
 
-# 主方法默认配置（各敏感性/消融实验的公共锚点）
+# 主方法默认配置（各敏感性/消融实验的公共参照点）
+# RN 阈值锚定标准：slope_max>45° 依据 WMO CIMO Guide（No.8, 开放平坦场地、
+# 避开陡坡对气流的扰动）与 CMA《地面气象观测规范》（坡度上限）；water_ratio>0.5
+# 依据两标准对水域/湿地禁建的规定。阈值本身有物理标准支撑，且 sens_rn_threshold
+# 的标签构成表 + 4 个训练配置证明结论不依赖具体阈值取值。
 rn_slope_thresh: 45.0
 rn_water_thresh: 0.5
 rn_strategy: physics
@@ -30,12 +35,12 @@ gnn_epochs: 200
 gnn_lr: 0.005
 buffer_cells: 0
 
-# 外部基线默认
+# 对比方法（基线）默认
 upu_epochs: 120
 appnp_epochs: 150
 lp_max_iter: 1000
 
-# 训练预算（消融内所有格子统一，禁止出现 epoch 数混杂）
+# 训练预算（消融内所有配置统一，禁止出现 epoch 数混杂）
 budget_epochs: 20
 warm_epochs: 5
 
