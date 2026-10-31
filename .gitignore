@@ -19,12 +19,5 @@ __pycache__/
 *.log
 *.tmp
 
-# 删除 CBAM/CoordConv 前的手工备份（git 已接管代码版本历史）
-.backup_20260807_remove_cbam_cc/
-.backup*/
-
-# 本地 Claude Code 配置
-.claude/
-
 # 文档（内部资料，不公开；本地保留）
 docs/
